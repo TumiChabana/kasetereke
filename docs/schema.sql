@@ -117,3 +117,44 @@ CREATE POLICY places_delete ON places FOR DELETE TO authenticated
   USING (app_role() = 'admin'
     OR (app_role() = 'operator' AND operator_id = app_profile_id()));
 
+-- Part 4 of 5: bookings and reviews policies
+
+-- Bookings
+CREATE POLICY bookings_select ON bookings FOR SELECT TO authenticated
+  USING (profile_id = app_profile_id()
+    OR app_role() = 'admin'
+    OR (app_role() = 'operator'
+        AND place_id IN (SELECT id FROM places WHERE operator_id = app_profile_id())));
+
+CREATE POLICY bookings_insert ON bookings FOR INSERT TO authenticated
+  WITH CHECK (profile_id = app_profile_id() AND status = 'pending');
+
+CREATE POLICY bookings_update ON bookings FOR UPDATE TO authenticated
+  USING (profile_id = app_profile_id() OR app_role() = 'admin')
+  WITH CHECK (profile_id = app_profile_id() OR app_role() = 'admin');
+
+-- Only these columns can change after a booking is created
+REVOKE UPDATE ON bookings FROM authenticated;
+GRANT UPDATE (status, record_hash, chain_tx_hash) ON bookings TO authenticated;
+
+-- Reviews: everyone signed in can read, only buyers can post
+CREATE POLICY reviews_select ON reviews FOR SELECT TO authenticated USING (true);
+
+CREATE POLICY reviews_insert ON reviews FOR INSERT TO authenticated
+  WITH CHECK (profile_id = app_profile_id()
+    AND EXISTS (SELECT 1 FROM bookings b
+                WHERE b.profile_id = app_profile_id()
+                  AND b.place_id = reviews.place_id
+                  AND b.status IN ('confirmed','completed')));
+
+CREATE POLICY reviews_update ON reviews FOR UPDATE TO authenticated
+  USING (profile_id = app_profile_id())
+  WITH CHECK (profile_id = app_profile_id());
+
+-- Rating and comment are frozen after posting; only the hash columns can change
+REVOKE UPDATE ON reviews FROM authenticated;
+GRANT UPDATE (comment_hash, chain_tx_hash) ON reviews TO authenticated;
+
+CREATE POLICY reviews_delete ON reviews FOR DELETE TO authenticated
+  USING (profile_id = app_profile_id() OR app_role() = 'admin');
+
