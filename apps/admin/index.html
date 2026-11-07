@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KaSetereke Administrator Console</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #C9A227;
+      --near-black: #1A1A1A;
+      --plum: #5B2A54;
+      --white: #FFFFFF;
+      --grey: #F2F2F2;
+      --red: #A32020;
+      --green: #1F6F3D;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: Inter, sans-serif; color: var(--near-black); background: var(--grey); }
+    header { background: var(--near-black); color: var(--white); padding: 16px 24px; display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: space-between; }
+    h1 { font-family: "Playfair Display", serif; font-size: 1.4rem; margin: 0; }
+    h2 { font-family: "Playfair Display", serif; color: var(--plum); margin-top: 0; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 24px; background: var(--white); }
+    nav button { border: 1px solid var(--near-black); background: var(--white); padding: 8px 14px; cursor: pointer; font: inherit; }
+    nav button.active { background: var(--near-black); color: var(--white); }
+    main { padding: 24px; }
+    section { background: var(--white); padding: 20px; border-radius: 6px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #DDD; }
+    th { background: var(--grey); }
+    .cards { display: flex; flex-wrap: wrap; gap: 16px; }
+    .card { border-left: 6px solid var(--plum); background: var(--grey); padding: 16px 20px; min-width: 160px; }
+    .card strong { display: block; font-size: 1.8rem; }
+    button.action { background: var(--gold); border: none; padding: 6px 12px; cursor: pointer; font: inherit; }
+    .ok { color: var(--green); font-weight: 600; }
+    .bad { color: var(--red); font-weight: 600; }
+    .note { color: #555; font-size: 0.9rem; }
+    input[type="text"] { padding: 8px; width: 260px; max-width: 100%; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>KaSetereke Administrator Console</h1>
+    <label>Demonstration role:
+      <select id="roleSelect"></select>
+    </label>
+  </header>
+  <nav id="nav"></nav>
+  <main><section id="view"></section></main>
+
+  <script>
+    // 1. Permissions: copied from permissions-matrix.md. Update both together.
+    const PERMISSIONS = {
+      "Administrator": {
+        "Dashboard": "Read", "Listings": "Read and Write", "Bookings": "Read and Write",
+        "Reviews": "Read and Write", "Users": "Read and Write", "Security Configuration": "Read"
+      },
+      "Security Officer": {
+        "Dashboard": "Read", "Listings": "Read", "Bookings": "None",
+        "Reviews": "Read", "Users": "Read", "Security Configuration": "Read and Write"
+      }
+    };
+
+    // 2. Sample data only. No real people and no real payment data.
+    const data = {
+      listings: [
+        { id: 1, name: "Maliba River Lodge", district: "Thaba-Tseka", type: "stay" },
+        { id: 2, name: "Thaba Bosiu Heritage Site", district: "Maseru", type: "heritage" },
+        { id: 3, name: "Semonkong Lodge", district: "Maseru", type: "stay" }
+      ],
+      bookings: [
+        { id: "B-001", place: "Maliba River Lodge", checkIn: "2026-12-01", checkOut: "2026-12-03", status: "confirmed" },
+        { id: "B-002", place: "Semonkong Lodge", checkIn: "2026-12-10", checkOut: "2026-12-12", status: "pending" },
+        { id: "B-003", place: "Maliba River Lodge", checkIn: "2027-01-05", checkOut: "2027-01-07", status: "completed" }
+      ],
+      reviews: [
+        { id: 1, pseudonym: "Traveller 1042", place: "Maliba River Lodge", rating: 5, comment: "Quiet and clean." },
+        { id: 2, pseudonym: "Traveller 2077", place: "Semonkong Lodge", rating: 4, comment: "Great views." }
+      ],
+      users: [
+        { name: "Sample Traveller", email: "traveller@example.com", role: "traveller" },
+        { name: "Sample Operator", email: "operator@example.com", role: "operator" }
+      ],
+      settings: [
+        { item: "Roles and permissions", dataClass: "Restricted" },
+        { item: "Data classification of each column", dataClass: "Restricted" },
+        { item: "Compliance levels", dataClass: "Restricted" }
+      ],
+      changeLog: []
+    };
+
+    // 3. Hashing: the same recipe is used when a record is saved and when it is verified.
+    async function hashBooking(b) {
+      const text = [b.id, b.place, b.checkIn, b.checkOut, b.status].join("|");
+      const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+      return Array.from(new Uint8Array(digest)).map(x => x.toString(16).padStart(2, "0")).join("");
+    }
+
+    // 4. Small helpers. textContent is used everywhere, so data can never run as code.
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+    function makeTable(columns, rows) {
+      const table = el("table");
+      const head = el("tr");
+      columns.forEach(c => head.appendChild(el("th", c)));
+      table.appendChild(head);
+      rows.forEach(cells => {
+        const tr = el("tr");
+        cells.forEach(cell => {
+          const td = el("td");
+          if (cell instanceof Node) td.appendChild(cell); else td.textContent = cell;
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+      return table;
+    }
+    function canWrite(module) { return PERMISSIONS[role][module].includes("Write"); }
+    function canRead(module) { return PERMISSIONS[role][module] !== "None"; }
+    function actionButton(label, onClick) {
+      const b = el("button", label, "action");
+      b.addEventListener("click", onClick);
+      return b;
+    }
+
+    // 5. Screens. Each one returns the page content for one module.
+    const screens = {
+      "Dashboard": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Dashboard"));
+        const cards = el("div", undefined, "cards");
+        [["Listings", data.listings.length], ["Bookings", data.bookings.length],
+         ["Reviews", data.reviews.length], ["Users", data.users.length]].forEach(([module, count]) => {
+          if (!canRead(module)) return;
+          const card = el("div", undefined, "card");
+          card.appendChild(el("strong", String(count)));
+          card.appendChild(el("span", module));
+          cards.appendChild(card);
+        });
+        wrap.appendChild(cards);
+        wrap.appendChild(el("p", "Totals appear only for the modules that this role may read.", "note"));
+        return wrap;
+      },
+      "Listings": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Listings"));
+        wrap.appendChild(makeTable(["Name", "District", "Type", ""], data.listings.map(l => [
+          l.name, l.district, l.type,
+          canWrite("Listings") ? actionButton("Remove", () => { data.listings = data.listings.filter(x => x.id !== l.id); show("Listings"); }) : ""
+        ])));
+        return wrap;
+      },
+      "Bookings": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Bookings"));
+        wrap.appendChild(makeTable(["Booking", "Place", "Check in", "Check out", "Status", "Verified"], data.bookings.map(b => {
+          const result = el("span", "Not checked");
+          const cell = el("span");
+          cell.appendChild(actionButton("Verify", async () => {
+            const same = (await hashBooking(b)) === b.recordHash;
+            result.textContent = same ? " Matches the chain record" : " Does not match: the record was changed";
+            result.className = same ? "ok" : "bad";
+          }));
+          cell.appendChild(result);
+          return [b.id, b.place, b.checkIn, b.checkOut, b.status, cell];
+        })));
+        wrap.appendChild(el("p", "Verify recomputes the hash of the booking and compares it with the stored one. Booking B-003 was changed after it was hashed, so it fails on purpose.", "note"));
+        return wrap;
+      },
+      "Reviews": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Reviews"));
+        wrap.appendChild(makeTable(["Reviewer", "Place", "Rating", "Comment", ""], data.reviews.map(r => [
+          r.pseudonym, r.place, String(r.rating), r.comment,
+          canWrite("Reviews") ? actionButton("Delete", () => { data.reviews = data.reviews.filter(x => x.id !== r.id); show("Reviews"); }) : ""
+        ])));
+        return wrap;
+      },
+      "Users": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Users"));
+        wrap.appendChild(makeTable(["Name", "Email address", "Role"], data.users.map(u => [u.name, u.email, u.role])));
+        wrap.appendChild(el("p", "Names and email addresses are Private data. Only roles with access may see this screen.", "note"));
+        return wrap;
+      },
+      "Security Configuration": () => {
+        const wrap = el("div");
+        wrap.appendChild(el("h2", "Security Configuration"));
+        wrap.appendChild(makeTable(["Item managed", "Data class"], data.settings.map(s => [s.item, s.dataClass])));
+        wrap.appendChild(el("h3", "Change log"));
+        wrap.appendChild(data.changeLog.length
+          ? makeTable(["Entry"], data.changeLog.map(e => [e]))
+          : el("p", "No changes recorded yet.", "note"));
+        if (canWrite("Security Configuration")) {
+          const input = el("input"); input.type = "text"; input.placeholder = "Describe the change";
+          wrap.appendChild(input);
+          wrap.appendChild(actionButton("Record change", () => {
+            if (input.value.trim() === "") return;
+            data.changeLog.push(new Date().toISOString() + " - " + role + ": " + input.value.trim());
+            show("Security Configuration");
+          }));
+        } else {
+          wrap.appendChild(el("p", "This role may read the settings but cannot change them.", "note"));
+        }
+        return wrap;
+      }
+    };
+
+    // 6. Navigation: only the modules that the role may read are shown.
+    let role = "Administrator";
+    function buildNav() {
+      const nav = document.getElementById("nav");
+      nav.replaceChildren();
+      Object.keys(screens).filter(canRead).forEach(name => {
+        const b = el("button", name);
+        b.addEventListener("click", () => show(name));
+        nav.appendChild(b);
+      });
+    }
+    function show(name) {
+      document.querySelectorAll("nav button").forEach(b => b.classList.toggle("active", b.textContent === name));
+      document.getElementById("view").replaceChildren(screens[name]());
+    }
+
+    // 7. Start: hash the sample bookings, then change one afterwards so that Verify can fail.
+    async function start() {
+      for (const b of data.bookings) b.recordHash = await hashBooking(b);
+      data.bookings[2].status = "confirmed";
+      const select = document.getElementById("roleSelect");
+      Object.keys(PERMISSIONS).forEach(r => select.appendChild(el("option", r)));
+      select.addEventListener("change", () => { role = select.value; buildNav(); show("Dashboard"); });
+      buildNav();
+      show("Dashboard");
+    }
+    start();
+  </script>
+</body>
+</html>
