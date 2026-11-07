@@ -1,0 +1,26 @@
+/* KaSetereke design tokens. Every screen reads its colours and fonts from here. */
+:root {
+  /* Meaning: gold = actionable, ink = "you are here"/info, plum = heritage */
+  --gold: #c5a059;
+  --gold-light: #e6c985;
+  --gold-dark: #6b5527;
+  --ink: #171512;
+  --plum: #3b0e45;
+
+  /* Neutrals */
+  --white: #ffffff;
+  --cream: #e5e4de;
+  --grey: #6b6b66;
+  --grey-light: #808080;
+  --slate: #354052;
+
+  /* Feedback */
+  --success: #34c759;
+
+  /* Type */
+  --font-head: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Arial, sans-serif;
+
+  /* Layout: the Figma frame is 412px wide */
+  --app-width: 412px;
+}
