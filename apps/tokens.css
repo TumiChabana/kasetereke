@@ -1,0 +1,15 @@
+:root {
+  --ink: #171512;
+  --gold: #C5A059;
+  --gold-light: #E6C985;
+  --gold-tint: #F6EFDF;
+  --plum: #3B0E45;
+  --plum-tint: #F2E9F1;
+  --tan-tint: #EFEAD9;
+  --text: #1A1A1A;
+  --muted: #6B6B66;
+  --border: #E5E4DE;
+  --background: #F5F5F0;
+  --font-heading: "Playfair Display", serif;
+  --font-body: Inter, sans-serif;
+}
