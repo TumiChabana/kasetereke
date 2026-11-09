@@ -28,5 +28,12 @@ window.KS = {
     { id: 'katse-dam',           districtId: 'thaba-tseka', type: 'heritage', name: 'Katse Dam',              tagline: 'Dam and viewpoints',      price: null, rating: 4.8, match: 87, tags: ['Great view'] },
     { id: 'sani-pass',           districtId: 'mokhotlong',  type: 'heritage', name: 'Sani Pass',              tagline: 'Mountain pass',           price: null, rating: 4.9, match: 92, tags: ['Bucket list'] },
     { id: 'ha-kome-caves',       districtId: 'berea',       type: 'heritage', name: 'Ha Kome Caves',          tagline: 'Cave dwellings',          price: null, rating: 4.5, match: 83, tags: ['Heritage'] }
-  ]
+    ]
 };
+
+// Give every place a photo path. The real photos are added later in apps/web/img/.
+// Until a photo exists, the app shows the coloured letter box instead.
+window.KS.places.forEach(function (p) {
+  p.image = 'img/' + p.id + '.jpg';
+});
+

@@ -50,9 +50,22 @@
     '</header>';
 
   const navBar = (active) => {
-    const items = [['explore', '#/home', 'Explore'], ['saved', '#/saved', 'Saved'], ['trips', '#/trips', 'Trips'], ['profile', '#/profile', 'Profile']];
-    return '<nav class="nav no-print" aria-label="Main">' + items.map((i) =>
-      '<a href="' + i[1] + '"' + (i[0] === active ? ' aria-current="page"' : '') + '>' + i[2] + '</a>').join('') + '</nav>';
+    const svg = (d) => '<svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + d + '</svg>';
+    const ICONS = {
+      explore: svg('<path d="M3 11l9-8 9 8"/><path d="M5 10v10h14V10"/>'),
+      saved: svg('<path d="M6 3h12v18l-6-4-6 4z"/>'),
+      trips: svg('<circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M8 19h6a4 4 0 0 0 0-8h-4a4 4 0 0 1 0-8h6"/>'),
+      profile: svg('<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/>'),
+      map: svg('<path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/>')
+    };
+    const link = (key, href, label) => '<a href="' + href + '"' + (key === active ? ' aria-current="page"' : '') + '>' + ICONS[key] + '<span>' + label + '</span></a>';
+    return '<nav class="nav no-print" aria-label="Main">' +
+      link('explore', '#/home', 'Explore') +
+      link('saved', '#/saved', 'Saved') +
+      '<a class="nav__map" href="#/map" aria-label="Map">' + ICONS.map + '</a>' +
+      link('trips', '#/trips', 'Trips') +
+      link('profile', '#/profile', 'Profile') +
+    '</nav>';
   };
 
   const saveButton = (p) =>
@@ -62,7 +75,7 @@
   const card = (p) =>
     '<article class="card card--' + p.type + '">' +
       '<a class="card__link" href="#/place/' + p.id + '">' +
-        '<div class="thumb thumb--' + p.type + '" aria-hidden="true">' + esc(p.name.charAt(0)) + '</div>' +
+        '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' + (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>'  +
         '<div class="card__body">' +
           '<h3 class="card__name">' + esc(p.name) + '</h3>' +
           '<p class="card__sub">' + esc(p.tagline) + '</p>' +
@@ -108,7 +121,58 @@
     }
   });
 
-  screens.home = () => ({
+    // Home: one photo card for the sideways-scrolling rows
+  const pcard = (p, badge) => {
+    const d = getDistrict(p.districtId);
+    return '<a class="pcard" href="#/place/' + p.id + '">' +
+      '<div class="pcard__img thumb--' + p.type + '"><span class="pcard__letter" aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' +
+        (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') +
+        '<span class="pcard__badge">' + esc(badge) + '</span></div>' +
+      '<h3 class="pcard__name">' + esc(p.name) + '</h3>' +
+      '<div class="pcard__meta"><span class="pcard__sub">' + esc(d.name) + '</span><span class="pcard__rate">&#9733; ' + p.rating.toFixed(1) + '</span></div></a>';
+  };
+
+  // Home: a titled shelf of cards. picks = [[placeId, badgeText], ...]
+  const shelf = (title, picks) => {
+    const cards = picks.map((x) => ({ p: getPlace(x[0]), badge: x[1] })).filter((x) => x.p).map((x) => pcard(x.p, x.badge));
+    return '<section class="shelf"><div class="shelf__head"><h2>' + esc(title) + '</h2><a href="#/districts">See all</a></div>' +
+      (cards.length ? '<div class="hrow">' + cards.join('') + '</div>' : '<p class="small">Nothing to show yet.</p>') + '</section>';
+  };
+
+  screens.home = () => {
+    const first = USER.name.split(' ')[0];
+    const initials = USER.name.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase();
+    // A district counts as explored when you have saved or booked a place in it.
+    const seen = {};
+    state.saved.concat(state.bookings.map((b) => b.placeId)).forEach((id) => { const p = getPlace(id); if (p) seen[p.districtId] = true; });
+    const explored = Object.keys(seen).length;
+    const cats = [['Stays', '#/districts'], ['Heritage', '#/districts'], ['Nature', '#/coming-soon'], ['Camping', '#/coming-soon'], ['Events', '#/coming-soon']];
+    return {
+      title: 'Home',
+      html:
+        '<header class="top top--home">' +
+          '<div class="home__row">' +
+            '<div><p class="home__hi">Hi, ' + esc(first) + '!</p><p class="home__sub">Ready for your next escape?</p></div>' +
+            '<div class="avatar avatar--small" aria-hidden="true">' + esc(initials) + '</div>' +
+          '</div>' +
+          '<p class="pill">' + explored + ' of ' + KS.districts.length + ' Districts Explored</p>' +
+        '</header>' +
+        '<div class="home__search"><a class="search" href="#/search"><span>Where in Lesotho?</span>' +
+          '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></a></div>' +
+        '<main class="home">' +
+          '<section class="banner"><h2>Explore Lesotho By District</h2>' +
+            '<p>Find local BnBs, lodges &amp; monuments right where you are. One tap, no typing.</p>' +
+            '<a class="pillbtn" href="#/districts">Explore now &rarr;</a></section>' +
+          '<ul class="cats">' + cats.map((c) =>
+            '<li><a href="' + c[1] + '"><span class="cats__img"><span aria-hidden="true">' + c[0].charAt(0) + '</span>' +
+            '<img src="img/cat-' + c[0].toLowerCase() + '.jpg" alt="" onerror="this.remove()"></span>' + c[0] + '</a></li>').join('') + '</ul>' +
+          shelf('Top picks for you', [['maliba-lodge', 'Family pick'], ['katse-dam', 'Great view']]) +
+          shelf('Trending right now', [['maletsunyane-falls', '#1 spot'], ['sani-pass', 'Bucket list']]) +
+        '</main>' + navBar('explore')
+    };
+  };
+
+  screens.districts = () => ({
     title: 'Choose your district',
     html:
       '<header class="top top--tall"><p>Hi, ' + esc(USER.name.split(' ')[0]) + '!</p><h1 class="top__title">Choose your district</h1></header>' +
