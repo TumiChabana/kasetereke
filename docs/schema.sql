@@ -158,3 +158,10 @@ GRANT UPDATE (comment_hash, chain_tx_hash) ON reviews TO authenticated;
 CREATE POLICY reviews_delete ON reviews FOR DELETE TO authenticated
   USING (profile_id = app_profile_id() OR app_role() = 'admin');
 
+
+-- Part 5 of 5: admin can save review hashes after anchoring on the chain
+-- (Column limits above still apply: only comment_hash and chain_tx_hash can change.)
+
+CREATE POLICY reviews_update_admin ON reviews FOR UPDATE TO authenticated
+  USING (app_role() = 'admin')
+  WITH CHECK (app_role() = 'admin');
