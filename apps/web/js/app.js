@@ -43,10 +43,11 @@
   // ---------- shared pieces (header, bottom nav, list card) ----------
   const ICON_BACK = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
-  const header = (title, backHref) =>
-    '<header class="top">' +
+  const header = (title, backHref, extra) =>
+    '<header class="top' + (extra ? ' top--search' : '') + '">' +
       (backHref ? '<a class="top__back" href="' + backHref + '" aria-label="Back">' + ICON_BACK + '</a>' : '') +
       '<h1 class="top__title">' + esc(title) + '</h1>' +
+      (extra || '') +
     '</header>';
 
   const navBar = (active) => {
@@ -196,7 +197,7 @@
     return {
       title: d.name,
       html:
-        header(d.name, '#/home') +
+        header(d.name, '#/districts', '<a class="search search--list" href="#/search"><span>Search places</span><svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></a>') +
         '<main><div class="tabs">' + tabs + '</div>' +
           (list.length ? list.map(card).join('') : empty('Nothing listed in ' + d.name + ' yet', 'Try another tab or pick a different district.', '#/home', 'Choose a district')) +
         '</main>' + navBar('explore')
@@ -210,8 +211,12 @@
     return {
       title: p.name,
       html:
-        header(p.name, '#/district/' + p.districtId) +
-        '<div class="hero hero--' + p.type + '" aria-hidden="true"><span>' + esc(p.name) + '</span></div>' +
+        '<div class="hero hero--' + p.type + '">' +
+          (p.image ? '<img class="hero__img" src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" onerror="this.remove()">' : '') +
+          '<a class="hero__btn hero__back" href="#/district/' + p.districtId + '" aria-label="Back">' + ICON_BACK + '</a>' +
+          '<button type="button" class="hero__btn hero__save" data-save="' + p.id + '" aria-pressed="' + isSaved(p.id) + '" aria-label="' + (isSaved(p.id) ? 'Remove ' : 'Save ') + esc(p.name) + '">' + (isSaved(p.id) ? '&#9829;' : '&#9825;') + '</button>' +
+          '<div class="hero__text"><p>' + esc(d.name) + ' &middot; ' + (p.type === 'stay' ? 'stay' : 'heritage site') + '</p><h1>' + esc(p.name) + '</h1></div>' +
+        '</div>' +
         '<main>' +
           '<p class="eyebrow-free">' + esc(d.name) + ' &ndash; ' + esc(p.tagline) + '</p>' +
           '<ul class="stats">' +
@@ -221,7 +226,6 @@
           '</ul>' +
           '<p class="tags">' + p.tags.map((t) => '<span class="tag tag--' + p.type + '">' + esc(t) + '</span>').join('') + '</p>' +
           (p.type === 'stay' ? '<a class="btn" href="#/book/' + p.id + '">Book now</a>' : '') +
-          '<button type="button" class="btn btn--ghost" data-save="' + p.id + '" aria-pressed="' + isSaved(p.id) + '">' + (isSaved(p.id) ? 'Saved to your trips' : 'Save to your trips') + '</button>' +
           '<p class="center"><a href="#/review/' + p.id + '">Write a review</a></p>' +
         '</main>' + navBar('explore')
     };

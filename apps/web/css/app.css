@@ -157,3 +157,36 @@ a { color: inherit; }
 .pcard__meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .pcard__sub { color: var(--grey); font-size: .8125rem; }
 .pcard__rate { color: var(--gold-dark); font-size: .875rem; font-weight: 600; white-space: nowrap; }
+
+
+/* ===== District list screens (Figma pages 9, 10, 12) ===== */
+.top--search { position: static; flex-wrap: wrap; padding-bottom: 24px; border-radius: 0 0 28px 28px; }
+.top--search .top__title { flex: 1; text-align: center; margin-right: 30px; letter-spacing: .12em; }
+.search--list { flex: 0 0 100%; margin-top: 8px; font-size: .875rem; box-shadow: none; }
+
+.tab { display: inline-flex; align-items: center; min-height: 44px; padding: 0 20px; background: var(--tan-tint); color: var(--plum); font-weight: 600; }
+
+.card { border-color: var(--grey-light); border-radius: 16px 32px 32px 16px; }
+.thumb { flex-basis: 108px; }
+.card__name { letter-spacing: .06em; }
+
+
+/* ===== Place detail (Figma pages 11 and 13) ===== */
+.hero { position: relative; display: block; height: 270px; padding: 0; overflow: hidden; }
+.hero__img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.hero::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, color-mix(in srgb, var(--ink) 85%, transparent), transparent 60%); }
+.hero__btn { position: absolute; top: 16px; z-index: 2; display: grid; place-items: center; width: 44px; height: 44px; border: 0; border-radius: 50%; font-size: 1.4rem; cursor: pointer; }
+.hero__back { left: 16px; background: var(--white); color: var(--ink); }
+.hero__save { right: 16px; background: var(--gold); color: var(--ink); }
+.hero__text { position: absolute; left: 0; right: 0; bottom: 16px; z-index: 2; padding: 0 16px; text-align: center; color: var(--white); }
+.hero__text p { margin: 0 0 4px; font: 600 .875rem var(--font-head); letter-spacing: .12em; }
+.hero__text h1 { font-size: 1.75rem; letter-spacing: .1em; }
+
+/* three gold circles under the photo */
+.hero + main .stats li { padding: 0; border: 0; }
+.hero + main .stats strong { display: grid; place-items: center; width: 72px; height: 72px; margin: 0 auto 8px; border: 2px solid var(--gold); border-radius: 50%; font: 600 .95rem var(--font-body); letter-spacing: .06em; }
+.hero + main .stats span { font-size: .8125rem; letter-spacing: .1em; }
+.tag { padding: 6px 16px; background: var(--tan-tint); color: var(--plum); font-weight: 600; }
+.hero + main .btn { margin-top: 16px; letter-spacing: .15em; }
+.hero + main .center { text-align: left; }
+.hero + main .center a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); letter-spacing: .1em; }

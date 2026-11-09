@@ -23,13 +23,13 @@
 
   /* Layout: the Figma frame is 412px wide */
   --app-width: 412px;
+}
 
-  /* Extra tints and page colours, added for the Figma restyle */
+/* Extra tints and page colours, added for the Figma restyle */
 :root {
   --gold-tint: #f6efdf;   /* soft gold background */
   --plum-tint: #f2e9f1;   /* soft plum background (heritage) */
   --tan-tint: #efead9;    /* chip background */
   --page-bg: #f5f5f0;     /* page background */
   --text: #1a1a1a;        /* main text colour */
-}
 }
