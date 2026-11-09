@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KaSetereke Administrator Console</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; font-family: var(--font-body); color: var(--text); background: var(--background); }
+    aside { background: var(--tan-tint); border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; gap: 20px; }
+    h1 { font-family: var(--font-heading); font-size: 1.3rem; margin: 0; color: var(--ink); }
+    h2 { font-family: var(--font-heading); margin-top: 0; color: var(--ink); }
+    label { font-size: 0.85rem; color: var(--muted); display: block; margin-bottom: 4px; }
+    select { font: inherit; padding: 6px 8px; border: 1px solid var(--border); background: #fff; }
+    nav { display: flex; flex-direction: column; gap: 4px; }
+    nav a { padding: 10px 12px; color: var(--ink); text-decoration: none; }
+    nav a.active { background: var(--ink); color: #fff; }
+    .note { color: var(--muted); font-size: 0.85rem; }
+    main { padding: 32px; }
+    section { background: #fff; border: 1px solid var(--border); padding: 24px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    th { background: var(--tan-tint); }
+    button.action { background: var(--gold); color: var(--ink); border: none; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; margin-left: 8px; }
+    .cards { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .card { border-left: 6px solid var(--ink); background: var(--background); padding: 12px 18px; min-width: 150px; }
+    .card strong { display: block; font-size: 1.6rem; }
+    .status { background: var(--gold-tint); padding: 10px 12px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>KaSetereke Administrator Console</h1>
+    <div>
+      <label for="roleSelect">Demonstration role</label>
+      <select id="roleSelect"></select>
+    </div>
+    <nav id="nav"></nav>
+    <p class="note">Demonstration data only. The email addresses and roles are examples. The role selector will be replaced by the real sign-in.</p>
+  </aside>
+  <main><section id="view"></section></main>
+
+  <script>
+    // 1. The roles, using the same names as the role column in the database.
+    const ROLE_LABELS = {
+      traveller: "Traveller",
+      operator: "Operator",
+      admin: "Admin",
+      security_officer: "Security Officer"
+    };
+
+    // 2. Role gate: which roles may open each screen, and whether they may only read or also write.
+    const screens = {
+      users:          { title: "Users and roles",     access: { admin: "write", security_officer: "read" }, render: renderUsers },
+      classification: { title: "Data classification", access: { admin: "read", security_officer: "read" }, render: renderClassification },
+      security:       { title: "Security settings",   access: { security_officer: "write", admin: "read" }, render: renderPlaceholder },
+      operator:       { title: "Operator dashboard",  access: { operator: "write" }, render: renderPlaceholder },
+      audit:          { title: "Audit log",           access: { admin: "read", security_officer: "read" }, render: renderPlaceholder }
+    };
+
+    // 3. Demonstration data. The person who is signed in for each demonstration role.
+    const DEMO_PERSON = {
+      admin: "pita@gmail.com",
+      security_officer: "fumane@gmail.com",
+      operator: "mokone@gmail.com"
+    };
+    // The names are the group members. The email addresses are placeholders. Replace them only with addresses that each person agreed to show, because the repository is public.
+    const users = [
+      { name: "Pita", email: "pita@gmail.com", role: "admin" },
+      { name: "Fumane", email: "fumane@gmail.com", role: "security_officer" },
+      { name: "Mokone", email: "mokone@gmail.com", role: "operator" },
+      { name: "Bongiwe", email: "bongiwe@gmail.com", role: "traveller" },
+      { name: "Chabana", email: "chabana@gmail.com", role: "traveller" }
+    ];
+
+    let role = "admin";
+    let statusMessage = "";
+
+    // 4. Helpers. textContent is used everywhere, so data can never run as code.
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+    function makeTable(columns, rows) {
+      const table = el("table");
+      const head = el("tr");
+      columns.forEach(c => head.appendChild(el("th", c)));
+      table.appendChild(head);
+      rows.forEach(cells => {
+        const tr = el("tr");
+        cells.forEach(cell => {
+          const td = el("td");
+          if (cell instanceof Node) td.appendChild(cell); else td.textContent = cell;
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+      return table;
+    }
+
+    // 5. Screens.
+    function renderUsers(view, level) {
+      view.appendChild(el("h2", "Users and roles"));
+      if (statusMessage) { view.appendChild(el("div", statusMessage, "status")); statusMessage = ""; }
+      const rows = users.map(u => {
+        const isMe = u.email === DEMO_PERSON[role];
+        let roleCell;
+        if (level === "write" && !isMe) {
+          // Only an Admin can change the role of another person.
+          const select = el("select");
+          Object.keys(ROLE_LABELS).forEach(key => {
+            const option = el("option", ROLE_LABELS[key]);
+            option.value = key;
+            if (key === u.role) option.selected = true;
+            select.appendChild(option);
+          });
+          const save = el("button", "Save role", "action");
+          save.addEventListener("click", () => {
+            u.role = select.value;
+            statusMessage = "The role of " + u.name + " is now " + ROLE_LABELS[u.role] + ".";
+            render();
+          });
+          roleCell = el("span");
+          roleCell.appendChild(select);
+          roleCell.appendChild(save);
+        } else {
+          roleCell = ROLE_LABELS[u.role] + (isMe ? " (you)" : "");
+        }
+        return [u.name, u.email, roleCell];
+      });
+      view.appendChild(makeTable(["Name", "Email address", "Role"], rows));
+      view.appendChild(el("p", "Names and email addresses are Private data. The database also enforces that only an Admin can change a role.", "note"));
+    }
+
+    function renderPlaceholder(view, level, name) {
+      view.appendChild(el("h2", screens[name].title));
+      view.appendChild(el("p", "This screen is not built yet."));
+      if (name === "audit") view.appendChild(el("p", "It is waiting for the audit table name from the database owner.", "note"));
+    }
+
+
+    // The class of every database column. Source: docs/schema-classification.md. Update both together.
+    const CLASS_NAMES = ["Public", "Private", "Confidential", "Restricted"];
+    const SCHEMA_CLASSES = [
+      ["districts", "id", "Public"],
+      ["districts", "name", "Public"],
+      ["places", "id", "Public"],
+      ["places", "name", "Public"],
+      ["places", "district_id", "Public"],
+      ["places", "type", "Public"],
+      ["places", "price_band", "Public"],
+      ["places", "family_friendly", "Public"],
+      ["places", "needs_4x4", "Public"],
+      ["places", "source", "Public"],
+      ["places", "operator_id", "Private"],
+      ["profiles", "id", "Private"],
+      ["profiles", "auth_user_id", "Restricted"],
+      ["profiles", "display_name", "Private"],
+      ["profiles", "email", "Private"],
+      ["profiles", "role", "Restricted"],
+      ["profiles", "created_at", "Private"],
+      ["bookings", "id", "Confidential"],
+      ["bookings", "profile_id", "Confidential"],
+      ["bookings", "place_id", "Confidential"],
+      ["bookings", "check_in", "Confidential"],
+      ["bookings", "check_out", "Confidential"],
+      ["bookings", "guests", "Confidential"],
+      ["bookings", "total_amount", "Confidential"],
+      ["bookings", "status", "Confidential"],
+      ["bookings", "payment_ref", "Confidential"],
+      ["bookings", "record_hash", "Confidential"],
+      ["bookings", "chain_tx_hash", "Confidential"],
+      ["bookings", "created_at", "Confidential"],
+      ["reviews", "id", "Public"],
+      ["reviews", "profile_id", "Private"],
+      ["reviews", "place_id", "Public"],
+      ["reviews", "reviewer_pseudonym", "Public"],
+      ["reviews", "rating", "Public"],
+      ["reviews", "comment", "Public"],
+      ["reviews", "comment_hash", "Public"],
+      ["reviews", "chain_tx_hash", "Confidential"],
+      ["reviews", "created_at", "Public"]
+    ];
+    let classFilter = "All";
+
+    function renderClassification(view) {
+      view.appendChild(el("h2", "Data classification"));
+
+      // Count how many columns belong to each class.
+      const cards = el("div", undefined, "cards");
+      CLASS_NAMES.forEach(name => {
+        const count = SCHEMA_CLASSES.filter(r => r[2] === name).length;
+        const card = el("div", undefined, "card");
+        card.appendChild(el("strong", String(count)));
+        card.appendChild(el("span", name));
+        cards.appendChild(card);
+      });
+      view.appendChild(cards);
+
+      // Filter: show one class, or all of them.
+      const label = el("label", "Show");
+      label.setAttribute("for", "classFilter");
+      const filter = el("select");
+      filter.id = "classFilter";
+      ["All"].concat(CLASS_NAMES).forEach(name => {
+        const option = el("option", name);
+        option.value = name;
+        if (name === classFilter) option.selected = true;
+        filter.appendChild(option);
+      });
+      filter.addEventListener("change", () => { classFilter = filter.value; render(); });
+      view.appendChild(label);
+      view.appendChild(filter);
+
+      const shown = SCHEMA_CLASSES.filter(r => classFilter === "All" || r[2] === classFilter);
+      view.appendChild(el("p", "Showing " + shown.length + " of " + SCHEMA_CLASSES.length + " columns.", "note"));
+      view.appendChild(makeTable(["Table", "Column", "Class"], shown));
+      view.appendChild(el("p", "The classification is a proposal and needs the approval of the group. Read only: it cannot be changed here.", "note"));
+    }
+
+    // 6. Hash routes: read the part of the address after the hash, then draw that screen.
+    function render() {
+      const allowed = Object.keys(screens).filter(n => screens[n].access[role]);
+      const hashName = location.hash.replace("#/", "");
+      const name = screens[hashName] ? hashName : allowed[0];
+
+      const nav = document.getElementById("nav");
+      nav.replaceChildren();
+      allowed.forEach(n => {
+        const link = el("a", screens[n].title);
+        link.href = "#/" + n;
+        if (n === name) link.className = "active";
+        nav.appendChild(link);
+      });
+
+      const view = document.getElementById("view");
+      view.replaceChildren();
+      const level = screens[name].access[role];
+      if (!level) {
+        view.appendChild(el("h2", "No access"));
+        view.appendChild(el("p", "This role may not open this screen."));
+        return;
+      }
+      screens[name].render(view, level, name);
+    }
+
+    // 7. Start.
+    const roleSelect = document.getElementById("roleSelect");
+    Object.keys(DEMO_PERSON).forEach(key => {
+      const option = el("option", ROLE_LABELS[key]);
+      option.value = key;
+      roleSelect.appendChild(option);
+    });
+    roleSelect.addEventListener("change", () => { role = roleSelect.value; statusMessage = ""; render(); });
+    window.addEventListener("hashchange", render);
+    render();
+  </script>
+</body>
+</html>
