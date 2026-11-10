@@ -1,6 +1,6 @@
 /* KaSetereke traveller app: one page, many screens, switched by the #hash in the address bar.
-   No framework. Data comes from js/data.js; saved places, bookings and reviews live in this browser
-   (localStorage) until the database is connected. */
+   No framework. Places come from js/data.js. Saved places and reviews live in this browser (localStorage).
+   Bookings of signed-in travellers live in Neon (through KaApi). Guests and the demo account use local sample bookings. */
 (function () {
   'use strict';
 
@@ -11,9 +11,10 @@
   // Dummy user: never put a real name, email or phone number in this public repo.
   const USER = { name: 'Thabo Mokoena', email: 'thabo@gmail.com' };
 
-    // Who is using the app: a real signed-in person, the labelled demo account, or nobody (a guest).
+  // Who is using the app: a real signed-in person, the labelled demo account, or nobody (a guest).
   let demoMode = false;
   const me = () => (window.KaAuth && window.KaAuth.getUser()) || (demoMode ? USER : null);
+  const isReal = () => !!(window.KaAuth && window.KaAuth.getUser());
 
   // ---------- storage (wrapped in try/catch because browsers can block it) ----------
   function readStore() {
@@ -29,7 +30,7 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
   const money = (n) => 'M' + Number(n).toLocaleString('en-US');
-    const getDistrict = (id) => KS.districts.find((d) => String(d.id) === String(id));
+  const getDistrict = (id) => KS.districts.find((d) => String(d.id) === String(id));
   const getPlace = (id) => KS.places.find((p) => String(p.id) === String(id));
   const isSaved = (id) => state.saved.some((x) => String(x) === String(id));
   const pad = (n) => String(n).padStart(2, '0');
@@ -43,6 +44,48 @@
     const [y, m, d] = s.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   };
+
+  // ---------- bookings: Neon (signed in) or local sample (guest / demo) ----------
+  // Uses the real KaApi from api.js: createBooking(b), listMyBookings(). KaApi throws a plain-English Error on failure.
+  const Api = () => window.KaApi || null;
+
+  // Make a booking from a database row. The DB is the source of truth, so keep the raw values.
+  function fromRow(r) {
+    const ci = String(r.check_in).slice(0, 10);   // must stay YYYY-MM-DD
+    const co = String(r.check_out).slice(0, 10);
+    return {
+      id: String(r.id),
+      placeId: r.place_id,
+      checkIn: ci, checkOut: co,
+      guests: Number(r.guests),
+      nights: nightsBetween(ci, co),
+      total: Number(r.total_amount),
+      status: String(r.status),                    // lowercase, as stored
+      chainTxHash: r.chain_tx_hash || null,
+      createdAt: r.created_at || '',
+      remote: true
+    };
+  }
+  async function remoteCreate(p, d) {
+    if (!Api()) throw new Error('Booking service is not available.');
+    const row = await Api().createBooking({ placeId: p.id, checkIn: d.checkIn, checkOut: d.checkOut, guests: d.guests, total: d.total });
+    if (!row || !row.id) throw new Error('The booking was not saved.');
+    return fromRow(row);
+  }
+  async function remoteList() {
+    if (!Api()) throw new Error('Booking service is not available.');
+    return (await Api().listMyBookings() || []).map(fromRow);
+  }
+  async function remoteGet(id) {
+    return (await remoteList()).find((b) => b.id === id) || null;
+  }
+
+  // One place to look a booking up: memory first, then this device's samples.
+  const cache = {};
+  const remember = (b) => { cache[b.id] = b; return b; };
+  const findBooking = (id) => cache[id] || state.bookings.find((b) => b.id === id);
+  // Neon ids are long uuids. Show a short friendly label, but always fingerprint the full id.
+  const displayId = (b) => (/^K5-/.test(b.id) ? b.id : 'K5-' + b.id.slice(0, 5).toUpperCase());
 
   // ---------- shared pieces (header, bottom nav, list card) ----------
   const ICON_BACK = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -77,44 +120,49 @@
     '<button type="button" class="save" data-save="' + p.id + '" aria-pressed="' + isSaved(p.id) + '" aria-label="Save ' + esc(p.name) + '">' +
     (isSaved(p.id) ? '&#9733;' : '&#9734;') + '</button>';
 
+  const thumb = (p) =>
+    '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' +
+    (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>';
+
   const card = (p) =>
     '<article class="card card--' + p.type + '">' +
       '<a class="card__link" href="#/place/' + p.id + '">' +
-        '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' + (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>'  +
+        thumb(p) +
         '<div class="card__body">' +
           '<h3 class="card__name">' + esc(p.name) + '</h3>' +
           '<p class="card__sub">' + esc(p.tagline) + '</p>' +
-          (p.price ? '<p class="card__price">' + money(p.price) + ' a night</p>' : '<p class="card__price card__price--heritage">Heritage and nature</p>') +
-                    (p.rating != null ? '<p class="card__meta">' + (p.match != null ? '<span class="match">' + p.match + '% match</span>' : '') + '<span>&#9733; ' + p.rating.toFixed(1) + '</span></p>' : '') +
+          (p.price ? '<p class="card__price">' + money(p.price) + ' a night</p>' : '<p class="card__price card__price--heritage">' + (p.type === 'stay' ? 'Price coming soon' : 'Heritage and nature') + '</p>') +
+          (p.rating != null ? '<p class="card__meta">' + (p.match != null ? '<span class="match">' + p.match + '% match</span>' : '') + '<span>&#9733; ' + p.rating.toFixed(1) + '</span></p>' : '') +
         '</div>' +
       '</a>' +
       saveButton(p) +
     '</article>';
 
-    // Saved list: a simpler row (photo, name, price, star) like the Figma design
+  // Saved list: a simpler row (photo, name, price, star) like the Figma design
   const savedCard = (p) =>
     '<article class="card card--' + p.type + '">' +
       '<a class="card__link" href="#/place/' + p.id + '">' +
-        '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' + (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>' +
+        thumb(p) +
         '<div class="card__body">' +
           '<h3 class="card__name">' + esc(p.name) + '</h3>' +
-          (p.price ? '<p class="card__price">' + money(p.price) + '/night</p>' : '<p class="card__price card__price--heritage">Heritage and nature</p>') +
+          (p.price ? '<p class="card__price">' + money(p.price) + '/night</p>' : '<p class="card__price card__price--heritage">' + (p.type === 'stay' ? 'Price coming soon' : 'Heritage and nature') + '</p>') +
         '</div>' +
       '</a>' +
       saveButton(p) +
-    '</article>';  
+    '</article>';
 
-    // Status badge: knows pending, confirmed, cancelled, completed. Any new status gets a plain grey badge.
+  // Status badge: knows pending, confirmed, cancelled, completed. Any new status gets a plain grey badge.
   const badge = (s) => {
     const known = ['pending', 'confirmed', 'cancelled', 'completed'].indexOf(s) !== -1;
     return '<span class="badge badge--' + (known ? s : 'other') + '">' + esc(s) + '</span>';
-  };  
+  };
 
   const empty = (title, text, href, label) =>
     '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><a class="btn" href="' + href + '">' + esc(label) + '</a></div>';
 
-    // ---------- blockchain panel (read-only, see docs/chain-spec.md) ----------
+  // ---------- blockchain panel (read-only, see docs/chain-spec.md) ----------
   // chain.js wants database column names, but this app uses camelCase, so translate first.
+  // For Neon bookings these values are the raw database values, so the fingerprint matches the anchor tool.
   const bookingRow = (b) => ({
     id: b.id, place_id: b.placeId, check_in: b.checkIn, check_out: b.checkOut,
     guests: b.guests, total_amount: b.total, status: b.status
@@ -126,29 +174,29 @@
     idle: ['Not checked yet', 'Press Verify to compare this record with the blockchain.'],
     loading: ['Checking...', 'Asking the blockchain. This can take a few seconds.'],
     verified: ['Verified on blockchain', 'This record matches the fingerprint saved on the blockchain.'],
-    pending: ['Not on the blockchain yet', 'Nothing has been recorded for this one yet. This is normal for sample bookings.'],
+    pending: ['Not on the blockchain yet', 'Nothing has been recorded for this one yet. It is recorded after an admin confirms the booking.'],
     mismatch: ['Record was changed', 'The fingerprint on the blockchain does not match this record any more.'],
     error: ['Could not check', 'The blockchain could not be reached. Your booking is not affected. Try again later.']
   };
 
-  const chainHtml = (state, result, txHash) => {
-    const t = CHAIN_TEXT[state] || CHAIN_TEXT.error;
+  const chainHtml = (st, result, txHash) => {
+    const t = CHAIN_TEXT[st] || CHAIN_TEXT.error;
     let extra = '';
     if (result && result.local) {
       extra += '<p class="chain__hash">Record fingerprint: ' + shortHash(result.local) + '</p>';
-      if (state === 'verified' || state === 'mismatch') extra += '<p class="chain__hash">On the blockchain: ' + shortHash(result.onChain) + '</p>';
-      if (state === 'verified' && result.time) extra += '<p class="chain__hash">Recorded on ' + prettyDate(result.time.slice(0, 10)) + '</p>';
+      if (st === 'verified' || st === 'mismatch') extra += '<p class="chain__hash">On the blockchain: ' + shortHash(result.onChain) + '</p>';
+      if (st === 'verified' && result.time) extra += '<p class="chain__hash">Recorded on ' + prettyDate(result.time.slice(0, 10)) + '</p>';
     }
     if (txHash && /^0x[0-9a-fA-F]{64}$/.test(txHash)) {
       extra += '<p class="chain__hash"><a href="https://sepolia.etherscan.io/tx/' + txHash + '" target="_blank" rel="noopener">View on Etherscan</a></p>';
     }
     return '<p class="chain__title">' + t[0] + '</p><p class="chain__text">' + t[1] + '</p>' + extra +
-      (state === 'loading' ? '' : '<button type="button" class="btn btn--ghost chain__btn" data-verify>' + (state === 'idle' ? 'Verify' : 'Verify again') + '</button>');
+      (st === 'loading' ? '' : '<button type="button" class="btn btn--ghost chain__btn" data-verify>' + (st === 'idle' ? 'Verify' : 'Verify again') + '</button>');
   };
 
-  const renderChain = (box, state, result, txHash) => {
-    box.className = 'chain chain--' + (CHAIN_TEXT[state] ? state : 'error');
-    box.innerHTML = chainHtml(state, result, txHash);
+  const renderChain = (box, st, result, txHash) => {
+    box.className = 'chain chain--' + (CHAIN_TEXT[st] ? st : 'error');
+    box.innerHTML = chainHtml(st, result, txHash);
   };
 
   // Ask the blockchain. Any problem (no internet, library missing, too slow) shows "Could not check".
@@ -164,7 +212,7 @@
       if (box.isConnected) renderChain(box, 'error');
     }
   }
-  
+
   // ---------- screens: each returns { title, html, after? } ----------
   const screens = {};
 
@@ -180,7 +228,7 @@
       '</main>'
   });
 
-    screens.onboarding = () => ({
+  screens.onboarding = () => ({
     title: 'Welcome',
     html:
       '<main class="onboard">' +
@@ -206,7 +254,7 @@
         '</form>' +
         '<button type="button" id="demo" class="btn btn--ghost">Try the demo account</button>' +
         '<p class="small">Demo account: sample data only, nothing is saved to the server.</p>' +
-                '<p class="center">No account? <a class="link" href="#/signup">Sign up</a></p>' +
+        '<p class="center">No account? <a class="link" href="#/signup">Sign up</a></p>' +
         '<p class="center"><a href="#/home">Continue without an account</a></p>' +
       '</main>',
     after: () => {
@@ -230,7 +278,7 @@
     }
   });
 
-    screens.signup = () => ({
+  screens.signup = () => ({
     title: 'Sign up',
     html:
       '<main class="auth">' +
@@ -241,7 +289,7 @@
           '<label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@gmail.com">' +
           '<label for="pw">Password</label><input id="pw" type="password" autocomplete="new-password">' +
           '<p class="small">At least 8 characters.</p>' +
-                    '<label class="check"><input id="agree" type="checkbox"><span>I have read the <a class="link" href="#/privacy">privacy notice</a>.</span></label>' +
+          '<label class="check"><input id="agree" type="checkbox"><span>I have read the <a class="link" href="#/privacy">privacy notice</a>.</span></label>' +
           '<p id="err" class="error" role="alert"></p>' +
           '<button class="btn" type="submit">Create account</button>' +
         '</form>' +
@@ -251,7 +299,6 @@
     after: () => {
       const form = document.getElementById('signup');
       const err = document.getElementById('err');
-      const msg = document.getElementById('msg');
       const btn = form.querySelector('button[type="submit"]');
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
@@ -273,15 +320,15 @@
     }
   });
 
-    // Home: one photo card for the sideways-scrolling rows
-  const pcard = (p, badge) => {
+  // Home: one photo card for the sideways-scrolling rows
+  const pcard = (p, badgeText) => {
     const d = getDistrict(p.districtId);
     return '<a class="pcard" href="#/place/' + p.id + '">' +
       '<div class="pcard__img thumb--' + p.type + '"><span class="pcard__letter" aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' +
         (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') +
-        '<span class="pcard__badge">' + esc(badge) + '</span></div>' +
+        '<span class="pcard__badge">' + esc(badgeText) + '</span></div>' +
       '<h3 class="pcard__name">' + esc(p.name) + '</h3>' +
-           '<div class="pcard__meta"><span class="pcard__sub">' + esc(d.name) + '</span>' + (p.rating != null ? '<span class="pcard__rate">&#9733; ' + p.rating.toFixed(1) + '</span>' : '') + '</div></a>';
+      '<div class="pcard__meta"><span class="pcard__sub">' + esc(d.name) + '</span>' + (p.rating != null ? '<span class="pcard__rate">&#9733; ' + p.rating.toFixed(1) + '</span>' : '') + '</div></a>';
   };
 
   // Home: a titled shelf of cards. picks = [[placeId, badgeText], ...]
@@ -292,10 +339,11 @@
   };
 
   screens.home = () => {
-        const u = me();
+    const u = me();
     const full = u ? (u.name || u.email || 'Traveller') : 'Guest';
     const first = full.split(' ')[0];
-    const initials = u ? full.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase() : 'G';// A district counts as explored when you have saved or booked a place in it.
+    const initials = u ? full.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase() : 'G';
+    // A district counts as explored when you have saved or booked a place in it.
     const seen = {};
     state.saved.concat(state.bookings.map((b) => b.placeId)).forEach((id) => { const p = getPlace(id); if (p) seen[p.districtId] = true; });
     const explored = Object.keys(seen).length;
@@ -319,7 +367,7 @@
           '<ul class="cats">' + cats.map((c) =>
             '<li><a href="' + c[1] + '"><span class="cats__img"><span aria-hidden="true">' + c[0].charAt(0) + '</span>' +
             '<img src="img/cat-' + c[0].toLowerCase() + '.jpg" alt="" onerror="this.remove()"></span>' + c[0] + '</a></li>').join('') + '</ul>' +
-                    shelf('Top picks for you', [[25, 'Family pick'], [18, 'Great view']]) +
+          shelf('Top picks for you', [[25, 'Family pick'], [18, 'Great view']]) +
           shelf('Trending right now', [[5, '#1 spot'], [22, 'Bucket list']]) +
         '</main>' + navBar('explore')
     };
@@ -328,11 +376,11 @@
   screens.districts = () => ({
     title: 'Choose your district',
     html:
-            '<header class="top top--tall"><p>Hi, ' + esc((me() ? (me().name || me().email || 'Traveller') : 'Guest').split(' ')[0]) + '!</p><h1 class="top__title">Choose your district</h1></header>' +
+      '<header class="top top--tall"><p>Hi, ' + esc((me() ? (me().name || me().email || 'Traveller') : 'Guest').split(' ')[0]) + '!</p><h1 class="top__title">Choose your district</h1></header>' +
       '<main>' +
         '<p class="lede">One tap, no typing needed.</p>' +
         '<ul class="grid">' + KS.districts.map((d) => {
-          const n = KS.places.filter((p) => p.districtId === d.id).length;
+          const n = KS.places.filter((p) => String(p.districtId) === String(d.id)).length;
           return '<li><a class="dbtn" href="#/district/' + d.id + '"><span>' + esc(d.name) + '</span><small>' + n + (n === 1 ? ' place' : ' places') + '</small></a></li>';
         }).join('') + '</ul>' +
       '</main>' + navBar('explore')
@@ -343,7 +391,7 @@
     if (!d) return screens.notFound();
     const tab = args[1] || 'all';
     const wanted = { all: null, stays: 'stay', heritage: 'heritage' }[tab];
-    const list = KS.places.filter((p) => p.districtId === d.id && (!wanted || p.type === wanted));
+    const list = KS.places.filter((p) => String(p.districtId) === String(d.id) && (!wanted || p.type === wanted));
     const tabs = [['all', 'All'], ['stays', 'Stays'], ['heritage', 'Heritage']].map((t) =>
       '<a class="tab" href="#/district/' + d.id + (t[0] === 'all' ? '' : '/' + t[0]) + '"' + (t[0] === tab ? ' aria-current="page"' : '') + '>' + t[1] + '</a>').join('');
     return {
@@ -360,6 +408,8 @@
     const p = getPlace(args[0]);
     if (!p) return screens.notFound();
     const d = getDistrict(p.districtId);
+    // A stay with no price yet cannot be booked: a null price would give a total of 0.
+    const bookable = p.type === 'stay' && p.price > 0;
     return {
       title: p.name,
       html:
@@ -372,12 +422,13 @@
         '<main>' +
           '<p class="eyebrow-free">' + esc(d.name) + ' &ndash; ' + esc(p.tagline) + '</p>' +
           '<ul class="stats">' +
-                        '<li><strong>' + (p.rating != null ? p.rating.toFixed(1) : '-') + '</strong><span>Rating</span></li>' +
+            '<li><strong>' + (p.rating != null ? p.rating.toFixed(1) : '-') + '</strong><span>Rating</span></li>' +
             '<li><strong>' + (p.match != null ? p.match + '%' : '-') + '</strong><span>Match</span></li>' +
-            '<li><strong>' + (p.price ? money(p.price) : 'Free') + '</strong><span>' + (p.price ? 'Per night' : 'Entry info soon') + '</span></li>' +
+            '<li><strong>' + (p.price ? money(p.price) : (p.type === 'stay' ? '-' : 'Free')) + '</strong><span>' + (p.price ? 'Per night' : (p.type === 'stay' ? 'Price soon' : 'Entry info soon')) + '</span></li>' +
           '</ul>' +
           '<p class="tags">' + p.tags.map((t) => '<span class="tag tag--' + p.type + '">' + esc(t) + '</span>').join('') + '</p>' +
-          (p.type === 'stay' ? '<a class="btn" href="#/book/' + p.id + '">Book now</a>' : '') +
+          (bookable ? '<a class="btn" href="#/book/' + p.id + '">Book now</a>' : '') +
+          (p.type === 'stay' && !bookable ? '<p class="small">Booking opens when the host sets a price.</p>' : '') +
           '<p class="center"><a href="#/review/' + p.id + '">Write a review</a></p>' +
         '</main>' + navBar('explore')
     };
@@ -385,7 +436,7 @@
 
   screens.book = (args) => {
     const p = getPlace(args[0]);
-    if (!p || p.type !== 'stay') return screens.notFound();
+    if (!p || p.type !== 'stay' || !(p.price > 0)) return screens.notFound();
     return {
       title: 'Book your stay',
       html:
@@ -406,7 +457,7 @@
         const guests = document.getElementById('guests'), sum = document.getElementById('sum'), err = document.getElementById('err');
         const today = new Date(), tomorrow = new Date(today.getTime() + 86400000), later = new Date(today.getTime() + 4 * 86400000);
         ci.min = isoDate(today);
-        const d = state.draft && state.draft.placeId === p.id ? state.draft : null;
+        const d = state.draft && String(state.draft.placeId) === String(p.id) ? state.draft : null;
         ci.value = d ? d.checkIn : isoDate(tomorrow);
         co.value = d ? d.checkOut : isoDate(later);
         if (d) guests.value = d.guests;
@@ -433,7 +484,7 @@
   screens.pay = (args) => {
     const p = getPlace(args[0]);
     const d = state.draft;
-    if (!p || !d || d.placeId !== p.id) { location.hash = '#/book/' + (p ? p.id : ''); return { title: 'Payment', html: '' }; }
+    if (!p || !d || String(d.placeId) !== String(p.id)) { location.hash = '#/book/' + (p ? p.id : ''); return { title: 'Payment', html: '' }; }
     return {
       title: 'Payment',
       html:
@@ -447,37 +498,55 @@
             '</fieldset>' +
             '<label for="phone">Mobile money number</label><input id="phone" type="tel" inputmode="tel" autocomplete="off" required>' +
             '<p class="small">Practice payment only. No money moves and this number is not saved.</p>' +
-                        '<p class="sum"><span>Total</span><strong>' + money(d.total) + '</strong></p>' +
+            '<p class="small">' + (isReal() ? 'Your booking will be saved to your account.' : 'You are not signed in, so this is a sample booking saved on this device only.') + '</p>' +
+            '<p class="sum"><span>Total</span><strong>' + money(d.total) + '</strong></p>' +
             '<p id="err" class="error" role="alert"></p>' +
             '<button class="btn" type="submit">Pay ' + money(d.total) + '</button>' +
           '</form>' +
         '</main>',
       after: () => {
-        document.getElementById('payform').addEventListener('submit', (e) => {
+        const form = document.getElementById('payform');
+        const err = document.getElementById('err');
+        const btn = form.querySelector('button[type="submit"]');
+        const label = btn.textContent;
+        form.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (document.getElementById('phone').value.replace(/\D/g, '').length < 8) {
-            document.getElementById('err').textContent = 'Enter your mobile money number.';
+            err.textContent = 'Enter your mobile money number.';
             return;
           }
-          const booking = {
-            id: 'K5-' + (10000 + Math.floor(Math.random() * 90000)),
-            placeId: p.id, checkIn: d.checkIn, checkOut: d.checkOut, guests: d.guests,
-            nights: d.nights, total: d.total, status: 'pending', createdAt: new Date().toISOString()
-          };
-          state.bookings.unshift(booking);
-          state.draft = null;
-          writeStore();
-          location.hash = '#/confirmed/' + booking.id;
+          err.textContent = '';
+          btn.disabled = true; btn.textContent = 'Saving...';
+          try {
+            let booking;
+            if (isReal()) {
+              // Real traveller: the database makes the id (uuid) and sets status to pending.
+              booking = remember(await remoteCreate(p, d));
+            } else {
+              // Guest or demo: local sample booking, never sent anywhere.
+              booking = {
+                id: 'K5-' + (10000 + Math.floor(Math.random() * 90000)),
+                placeId: p.id, checkIn: d.checkIn, checkOut: d.checkOut, guests: d.guests,
+                nights: d.nights, total: d.total, status: 'pending', createdAt: new Date().toISOString()
+              };
+              state.bookings.unshift(booking);
+            }
+            state.draft = null;
+            writeStore();
+            location.hash = '#/confirmed/' + encodeURIComponent(booking.id);
+          } catch (ex) {
+            btn.disabled = false; btn.textContent = label;
+            err.textContent = 'Could not save your booking: ' + (ex.message || 'try again.');
+          }
         });
       }
     };
   };
 
-  const findBooking = (id) => state.bookings.find((b) => b.id === id);
-
   screens.confirmed = (args) => {
-    const b = findBooking(args[0]);
-    if (!b) return screens.notFound();
+    const id = decodeURIComponent(args[0] || '');
+    const b = findBooking(id);
+    if (!b) { location.hash = '#/trips'; return { title: 'Booking received', html: '' }; }
     const p = getPlace(b.placeId);
     return {
       title: 'Booking received',
@@ -486,35 +555,48 @@
           '<svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="4"/><path d="M18 33l9 9 19-21" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
           '<h1>Booking received!</h1>' +
           '<p>' + esc(p.name) + ' &ndash; ' + b.nights + (b.nights === 1 ? ' night' : ' nights') + ', ' + b.guests + (b.guests === 1 ? ' guest' : ' guests') + '</p>' +
-          '<p class="small">Status: pending. The host or an admin still has to confirm it.</p>' +
-          '<a class="btn" href="#/receipt/' + b.id + '">View receipt</a>' +
+          '<p class="small">Status: pending. The host or an admin still has to confirm it.' + (b.remote ? '' : ' (Sample booking, saved on this device only.)') + '</p>' +
+          '<a class="btn" href="#/receipt/' + encodeURIComponent(b.id) + '">View receipt</a>' +
           '<a class="btn btn--ghost" href="#/home">Back to home</a>' +
         '</main>'
     };
   };
 
-  screens.receipt = (args) => {
-    const b = findBooking(args[0]);
-    if (!b) return screens.notFound();
+  // Receipt: loads the booking (from Neon for real travellers) and then draws it.
+  const receiptBody = (b) => {
     const p = getPlace(b.placeId);
     const row = (k, v) => '<div class="row"><dt>' + k + '</dt><dd>' + v + '</dd></div>';
+    return '<section class="receipt">' +
+        '<h2>' + esc(p ? p.name : 'Booking') + '</h2>' +
+        '<p class="small">Booking ID: ' + esc(displayId(b)) + '</p>' +
+        '<dl>' +
+          row('Check-in', prettyDate(b.checkIn)) + row('Check-out', prettyDate(b.checkOut)) +
+          row('Nights', b.nights) + row('Guests', b.guests) + row('Status', badge(b.status)) +
+          '<div class="row row--total"><dt>Total</dt><dd>' + money(b.total) + '</dd></div>' +
+        '</dl>' +
+        '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle', null, b.chainTxHash) + '</div>' +
+      '</section>' +
+      '<button type="button" class="btn btn--ghost no-print" data-print>Download PDF</button>';
+  };
+
+  screens.receipt = (args) => {
+    const id = decodeURIComponent(args[0] || '');
     return {
       title: 'Receipt',
-      html:
-        header('Receipt', '#/trips') +
-        '<main>' +
-          '<section class="receipt">' +
-            '<h2>' + esc(p.name) + '</h2>' +
-            '<p class="small">Booking ID: ' + esc(b.id) + '</p>' +
-            '<dl>' +
-              row('Check-in', prettyDate(b.checkIn)) + row('Check-out', prettyDate(b.checkOut)) +
-                            row('Nights', b.nights) + row('Guests', b.guests) + row('Status', badge(b.status)) +
-              '<div class="row row--total"><dt>Total</dt><dd>' + money(b.total) + '</dd></div>' +
-            '</dl>' +
-            '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle') + '</div>' +
-          '</section>' +
-          '<button type="button" class="btn btn--ghost no-print" data-print>Download PDF</button>' +
-        '</main>' + navBar('trips')
+      html: header('Receipt', '#/trips') + '<main id="rcpt"><p class="small" role="status">Loading your receipt...</p></main>' + navBar('trips'),
+      after: async () => {
+        const box = document.getElementById('rcpt');
+        try {
+          let b = state.bookings.find((x) => x.id === id);          // local sample first
+          if (!b && isReal()) b = await remoteGet(id);                // otherwise the real row from Neon
+          if (!box.isConnected) return;
+          if (!b) { box.innerHTML = empty('Receipt not found', 'We could not find this booking.', '#/trips', 'Back to trips'); return; }
+          remember(b);
+          box.innerHTML = receiptBody(b);
+        } catch (e) {
+          if (box.isConnected) box.innerHTML = empty('Could not load the receipt', e.message || 'Check your connection and try again.', '#/trips', 'Back to trips');
+        }
+      }
     };
   };
 
@@ -565,25 +647,39 @@
     return {
       title: 'Saved',
       html:
-                header('Saved', '#/home') +
-                '<main>' + (list.length ? '<p class="small">Saved on this device only.</p>' + list.map(savedCard).join('') : empty('Nothing saved yet', 'Tap the star on a place to keep it here. Saved places stay on this device.', '#/home', 'Explore districts')) + '</main>' +
+        header('Saved', '#/home') +
+        '<main>' + (list.length ? '<p class="small">Saved on this device only.</p>' + list.map(savedCard).join('') : empty('Nothing saved yet', 'Tap the star on a place to keep it here. Saved places stay on this device.', '#/home', 'Explore districts')) + '</main>' +
         navBar('saved')
     };
   };
 
+  // Trips: real travellers see their bookings from Neon, everyone else sees local samples.
+  const tripCard = (b) => {
+    const p = getPlace(b.placeId);
+    return '<article class="card trip"><a class="card__link" href="#/receipt/' + encodeURIComponent(b.id) + '"><div class="card__body">' +
+      '<h3 class="card__name">' + esc(p ? p.name : 'Booking') + '</h3>' +
+      '<p class="card__sub">' + prettyDate(b.checkIn) + ' to ' + prettyDate(b.checkOut) + '</p>' +
+      '<p class="card__price">' + money(b.total) + ' &ndash; ' + esc(displayId(b)) + '</p>' +
+      '<p class="small">Status: ' + esc(b.status) + '</p></div></a></article>';
+  };
+  const tripsList = (list, real) => list.length
+    ? '<p class="small">' + (real ? 'Your bookings from your account.' : 'Sample trips are saved on this device only.') + '</p>' + list.map(tripCard).join('')
+    : empty('No trips yet', 'Book a stay and your receipt will appear here.', '#/home', 'Find a stay');
+
   screens.trips = () => ({
     title: 'Trips',
-    html:
-      header('Your trips') +
-      '<main>' + (state.bookings.length ? '<p class="small">Trips are saved on this device only.</p>' + state.bookings.map((b) => {
-        const p = getPlace(b.placeId);
-        return '<article class="card trip"><a class="card__link" href="#/receipt/' + b.id + '"><div class="card__body">' +
-          '<h3 class="card__name">' + esc(p.name) + '</h3>' +
-          '<p class="card__sub">' + prettyDate(b.checkIn) + ' to ' + prettyDate(b.checkOut) + '</p>' +
-          '<p class="card__price">' + money(b.total) + ' &ndash; ' + esc(b.id) + '</p>' +
-          '<p class="small">Status: ' + esc(b.status) + '</p></div></a></article>';
-      }).join('') : empty('No trips yet', 'Book a stay and your receipt will appear here.', '#/home', 'Find a stay')) + '</main>' +
-      navBar('trips')
+    html: header('Your trips') + '<main id="trips"><p class="small" role="status">' + (isReal() ? 'Loading your bookings...' : '') + '</p>' + (isReal() ? '' : tripsList(state.bookings, false)) + '</main>' + navBar('trips'),
+    after: async () => {
+      if (!isReal()) return;
+      const box = document.getElementById('trips');
+      try {
+        const list = (await remoteList()).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        list.forEach(remember);
+        if (box.isConnected) box.innerHTML = tripsList(list, true);
+      } catch (e) {
+        if (box.isConnected) box.innerHTML = '<p class="error">Could not load your bookings: ' + esc(e.message || 'try again.') + '</p>';
+      }
+    }
   });
 
   screens.profile = () => {
@@ -601,16 +697,16 @@
             '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
             '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
           '</ul>' +
-                    (u ? '<ul class="menu"><li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li></ul>' : '') +
+          (u ? '<ul class="menu"><li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li></ul>' : '') +
           (u ? '' : '<p class="small">You are browsing as a guest.</p>') +
-          (u && !window.KaAuth.getUser() ? '<p class="small">Demo account: sample data only.</p>' : '') +
-                    (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
-          (u && window.KaAuth.getUser() ? '<a class="center" href="#/delete-account">Delete my account</a>' : '') +
+          (u && !isReal() ? '<p class="small">Demo account: sample data only.</p>' : '') +
+          (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
+          (u && isReal() ? '<a class="center" href="#/delete-account">Delete my account</a>' : '') +
         '</main>' + navBar('profile')
     };
   };
 
-    screens['delete-account'] = () => ({
+  screens['delete-account'] = () => ({
     title: 'Delete account',
     html:
       header('Delete account', '#/profile') +
@@ -624,7 +720,7 @@
       '</main>'
   });
 
-    screens.privacy = () => ({
+  screens.privacy = () => ({
     title: 'Privacy notice',
     html:
       header('Privacy notice', '#/signup') +
@@ -632,7 +728,7 @@
         '<h2>What we collect</h2>' +
         '<p>Your name and email address, so you can have an account. The bookings and reviews you make.</p>' +
         '<h2>Where it is kept</h2>' +
-        '<p>Account details and bookings are kept in the project database. Places you save and your trip list are kept only in this browser, on this device.</p>' +
+        '<p>Account details and bookings are kept in the project database. Places you save are kept only in this browser, on this device.</p>' +
         '<h2>The blockchain</h2>' +
         '<p>Only a fingerprint (a hash) of a booking or review is recorded on a public test blockchain. Names, emails, phone numbers and review text are never put on it.</p>' +
         '<h2>Payments</h2>' +
@@ -640,20 +736,16 @@
         '<h2>Deleting your account</h2>' +
         '<p>You can delete your account from your Profile. This is permanent.</p>' +
         '<p class="small">This is a short student-project notice and has not yet been reviewed by the data-protection owner on the team.</p>' +
-      '</main>'
-
-      ,
+      '</main>',
     after: () => {
       document.querySelector('.top__back').addEventListener('click', (e) => {
         e.preventDefault();
         if (history.length > 1) history.back(); else location.hash = '#/signup';
       });
     }
-
-
   });
 
-    screens.search = () => ({
+  screens.search = () => ({
     title: 'Search',
     html:
       '<header class="top top--search">' +
@@ -681,7 +773,7 @@
     }
   });
 
-    screens.offline = () => ({
+  screens.offline = () => ({
     title: 'Offline',
     html:
       '<main class="done">' +
@@ -700,7 +792,7 @@
     }
   });
 
-    screens.settings = () => ({
+  screens.settings = () => ({
     title: 'Settings',
     html:
       header('Settings', '#/profile') +
@@ -713,7 +805,7 @@
       '</main>' + navBar('profile')
   });
 
-    screens.verify = () => ({
+  screens.verify = () => ({
     title: 'Verify your email',
     html:
       header('Verify your email', '#/login') +
@@ -757,7 +849,7 @@
 
   // ---------- router: read the hash, pick a screen, draw it ----------
   function route(keepScroll) {
-    const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);   // '#/district/maseru' -> ['district','maseru']
+    const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);   // '#/district/5' -> ['district','5']
     const make = screens[parts[0] || 'splash'] || screens.notFound;
     const screen = make(parts.slice(1));
     document.title = screen.title + ' - KaSetereke';
@@ -766,12 +858,12 @@
     if (!keepScroll) { window.scrollTo(0, 0); app.scrollTop = 0; }
   }
 
-  // One click listener handles every Save star and the print button.
+  // One click listener handles every Save star, the Verify button, log out and print.
   app.addEventListener('click', (e) => {
     const save = e.target.closest('[data-save]');
     if (save) {
       const id = save.dataset.save;
-        state.saved = isSaved(id) ? state.saved.filter((x) => String(x) !== String(id)) : state.saved.concat(id);
+      state.saved = isSaved(id) ? state.saved.filter((x) => String(x) !== String(id)) : state.saved.concat(id);
       writeStore();
       route(true);
       return;
@@ -783,7 +875,7 @@
       if (b) runVerify(box, bookingRow(b), 'booking', b.chainTxHash);
       return;
     }
-        if (e.target.closest('[data-logout]')) {
+    if (e.target.closest('[data-logout]')) {
       demoMode = false;
       const done = window.KaAuth ? window.KaAuth.signOut() : Promise.resolve();
       done.then(() => { location.hash = '#/login'; });
