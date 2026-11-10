@@ -91,6 +91,19 @@
       saveButton(p) +
     '</article>';
 
+    // Saved list: a simpler row (photo, name, price, star) like the Figma design
+  const savedCard = (p) =>
+    '<article class="card card--' + p.type + '">' +
+      '<a class="card__link" href="#/place/' + p.id + '">' +
+        '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' + (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>' +
+        '<div class="card__body">' +
+          '<h3 class="card__name">' + esc(p.name) + '</h3>' +
+          (p.price ? '<p class="card__price">' + money(p.price) + '/night</p>' : '<p class="card__price card__price--heritage">Heritage and nature</p>') +
+        '</div>' +
+      '</a>' +
+      saveButton(p) +
+    '</article>';  
+
   const empty = (title, text, href, label) =>
     '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><a class="btn" href="' + href + '">' + esc(label) + '</a></div>';
 
@@ -274,9 +287,10 @@
   };
 
   screens.home = () => {
-    const first = USER.name.split(' ')[0];
-    const initials = USER.name.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase();
-    // A district counts as explored when you have saved or booked a place in it.
+        const u = me();
+    const full = u ? (u.name || u.email || 'Traveller') : 'Guest';
+    const first = full.split(' ')[0];
+    const initials = u ? full.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase() : 'G';// A district counts as explored when you have saved or booked a place in it.
     const seen = {};
     state.saved.concat(state.bookings.map((b) => b.placeId)).forEach((id) => { const p = getPlace(id); if (p) seen[p.districtId] = true; });
     const explored = Object.keys(seen).length;
@@ -309,7 +323,7 @@
   screens.districts = () => ({
     title: 'Choose your district',
     html:
-      '<header class="top top--tall"><p>Hi, ' + esc(USER.name.split(' ')[0]) + '!</p><h1 class="top__title">Choose your district</h1></header>' +
+            '<header class="top top--tall"><p>Hi, ' + esc((me() ? (me().name || me().email || 'Traveller') : 'Guest').split(' ')[0]) + '!</p><h1 class="top__title">Choose your district</h1></header>' +
       '<main>' +
         '<p class="lede">One tap, no typing needed.</p>' +
         '<ul class="grid">' + KS.districts.map((d) => {
@@ -443,7 +457,7 @@
           const booking = {
             id: 'K5-' + (10000 + Math.floor(Math.random() * 90000)),
             placeId: p.id, checkIn: d.checkIn, checkOut: d.checkOut, guests: d.guests,
-            nights: d.nights, total: d.total, status: 'confirmed', createdAt: new Date().toISOString()
+            nights: d.nights, total: d.total, status: 'pending', createdAt: new Date().toISOString()
           };
           state.bookings.unshift(booking);
           state.draft = null;
@@ -461,12 +475,13 @@
     if (!b) return screens.notFound();
     const p = getPlace(b.placeId);
     return {
-      title: 'Booking confirmed',
+      title: 'Booking received',
       html:
         '<main class="done">' +
           '<svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="4"/><path d="M18 33l9 9 19-21" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-          '<h1>Booking confirmed!</h1>' +
+          '<h1>Booking received!</h1>' +
           '<p>' + esc(p.name) + ' &ndash; ' + b.nights + (b.nights === 1 ? ' night' : ' nights') + ', ' + b.guests + (b.guests === 1 ? ' guest' : ' guests') + '</p>' +
+          '<p class="small">Status: pending. The host or an admin still has to confirm it.</p>' +
           '<a class="btn" href="#/receipt/' + b.id + '">View receipt</a>' +
           '<a class="btn btn--ghost" href="#/home">Back to home</a>' +
         '</main>'
@@ -488,8 +503,8 @@
             '<p class="small">Booking ID: ' + esc(b.id) + '</p>' +
             '<dl>' +
               row('Check-in', prettyDate(b.checkIn)) + row('Check-out', prettyDate(b.checkOut)) +
-              row('Nights', b.nights) + row('Guests', b.guests) +
-              '<div class="row row--total"><dt>Total paid</dt><dd>' + money(b.total) + '</dd></div>' +
+              row('Nights', b.nights) + row('Guests', b.guests) +row('Status', esc(b.status))+
+              '<div class="row row--total"><dt>Total</dt><dd>' + money(b.total) + '</dd></div>' +
             '</dl>' +
             '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle') + '</div>' +
           '</section>' +
@@ -545,8 +560,8 @@
     return {
       title: 'Saved',
       html:
-        header('Saved') +
-        '<main>' + (list.length ? list.map(card).join('') : empty('Nothing saved yet', 'Tap the star on a place to keep it here.', '#/home', 'Explore districts')) + '</main>' +
+                header('Saved', '#/home') +
+                '<main>' + (list.length ? '<p class="small">Saved on this device only.</p>' + list.map(savedCard).join('') : empty('Nothing saved yet', 'Tap the star on a place to keep it here. Saved places stay on this device.', '#/home', 'Explore districts')) + '</main>' +
         navBar('saved')
     };
   };
@@ -555,29 +570,52 @@
     title: 'Trips',
     html:
       header('Your trips') +
-      '<main>' + (state.bookings.length ? state.bookings.map((b) => {
+      '<main>' + (state.bookings.length ? '<p class="small">Trips are saved on this device only.</p>' + state.bookings.map((b) => {
         const p = getPlace(b.placeId);
         return '<article class="card trip"><a class="card__link" href="#/receipt/' + b.id + '"><div class="card__body">' +
           '<h3 class="card__name">' + esc(p.name) + '</h3>' +
           '<p class="card__sub">' + prettyDate(b.checkIn) + ' to ' + prettyDate(b.checkOut) + '</p>' +
-          '<p class="card__price">' + money(b.total) + ' &ndash; ' + esc(b.id) + '</p></div></a></article>';
+          '<p class="card__price">' + money(b.total) + ' &ndash; ' + esc(b.id) + '</p>' +
+          '<p class="small">Status: ' + esc(b.status) + '</p></div></a></article>';
       }).join('') : empty('No trips yet', 'Book a stay and your receipt will appear here.', '#/home', 'Find a stay')) + '</main>' +
       navBar('trips')
   });
 
-  screens.profile = () => ({
-    title: 'Profile',
+  screens.profile = () => {
+    const u = me();
+    const name = u ? (u.name || u.email || 'Traveller') : 'Guest';
+    const email = u ? (u.email || '') : 'Not signed in';
+    const initials = u ? name.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase() : 'G';
+    return {
+      title: 'Profile',
+      html:
+        '<header class="top top--tall top--center"><div class="avatar" aria-hidden="true">' + esc(initials) + '</div><h1 class="top__title">' + esc(name) + '</h1><p>' + esc(email) + '</p></header>' +
+        '<main>' +
+          '<ul class="stats">' +
+            '<li><strong>' + state.saved.length + '</strong><span>Saved</span></li>' +
+            '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
+            '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
+          '</ul>' +
+          (u ? '' : '<p class="small">You are browsing as a guest.</p>') +
+          (u && !window.KaAuth.getUser() ? '<p class="small">Demo account: sample data only.</p>' : '') +
+                    (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
+          (u && window.KaAuth.getUser() ? '<a class="center" href="#/delete-account">Delete my account</a>' : '') +
+        '</main>' + navBar('profile')
+    };
+  };
+
+    screens['delete-account'] = () => ({
+    title: 'Delete account',
     html:
-      '<header class="top top--tall top--center"><div class="avatar" aria-hidden="true">TM</div><h1 class="top__title">' + esc(USER.name) + '</h1><p>' + esc(USER.email) + '</p></header>' +
-      '<main>' +
-        '<ul class="stats">' +
-          '<li><strong>' + state.saved.length + '</strong><span>Saved</span></li>' +
-          '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
-          '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
-        '</ul>' +
-        '<p class="small">Practice account. Real accounts arrive with the database.</p>' +
-        '<a class="btn btn--ghost" href="#/">Log out</a>' +
-      '</main>' + navBar('profile')
+      header('Delete account', '#/profile') +
+      '<main class="prose">' +
+        '<h2>This is permanent</h2>' +
+        '<p>Deleting your account removes your personal details from the database. It cannot be undone.</p>' +
+        '<p>Only a fingerprint (hash) of your bookings and reviews stays on the blockchain. It holds no personal details.</p>' +
+        '<p class="small">Account deletion is not connected to the database yet, so nothing will be deleted today.</p>' +
+        '<button type="button" class="btn" disabled>Delete my account (not available yet)</button>' +
+        '<a class="btn btn--ghost" href="#/profile">Cancel</a>' +
+      '</main>'
   });
 
     screens.privacy = () => ({
@@ -632,6 +670,12 @@
       const box = verify.closest('.chain');
       const b = box && findBooking(box.dataset.booking);
       if (b) runVerify(box, bookingRow(b), 'booking', b.chainTxHash);
+      return;
+    }
+        if (e.target.closest('[data-logout]')) {
+      demoMode = false;
+      const done = window.KaAuth ? window.KaAuth.signOut() : Promise.resolve();
+      done.then(() => { location.hash = '#/login'; });
       return;
     }
     if (e.target.closest('[data-print]')) window.print();
