@@ -104,6 +104,12 @@
       saveButton(p) +
     '</article>';  
 
+    // Status badge: knows pending, confirmed, cancelled, completed. Any new status gets a plain grey badge.
+  const badge = (s) => {
+    const known = ['pending', 'confirmed', 'cancelled', 'completed'].indexOf(s) !== -1;
+    return '<span class="badge badge--' + (known ? s : 'other') + '">' + esc(s) + '</span>';
+  };  
+
   const empty = (title, text, href, label) =>
     '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><a class="btn" href="' + href + '">' + esc(label) + '</a></div>';
 

@@ -349,3 +349,44 @@ a { color: inherit; }
   outline: 3px solid var(--gold-light);
   outline-offset: 2px;
 }
+
+/* ===== Phone frame: only on wide screens (laptops). A real phone is not changed. ===== */
+@media screen and (min-width: 600px) {
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100dvh;
+    padding: 24px 0;
+    overflow: hidden;
+  }
+  .app {
+    width: 100%;
+    max-width: calc(var(--app-width) + 20px);
+    height: min(916px, 100%);
+    min-height: 0;
+    margin: 0;
+    border: 10px solid var(--ink);
+    border-radius: 44px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--gold) var(--cream);
+    box-shadow: 0 20px 60px color-mix(in srgb, var(--ink) 30%, transparent);
+  }
+  .offline {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
+  }
+}
+
+/* Inside the fixed phone, nothing may shrink: the screen scrolls instead. */
+@media screen and (min-width: 600px) {
+  .app > *,
+  .app > main {
+    flex-shrink: 0;
+  }
+}
