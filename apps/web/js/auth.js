@@ -53,7 +53,7 @@
   async function signIn(email, password) {
     try {
       const res = await post('/sign-in/email', { email: email, password: password });
-      if (!res.ok) return { ok: false, message: friendly(res) };
+        if (!res.ok) return { ok: false, message: await friendly(res) };
       await refresh();
       return user ? { ok: true } : { ok: false, message: 'Could not start your session. Please try again.' };
     } catch (e) {
@@ -65,7 +65,7 @@
     try {
       const res = await post('/sign-up/email', { name: name, email: email, password: password });
       if (!res.ok) {
-        return { ok: false, message: res.status === 422 ? 'That email may already be registered, or the password is too weak.' : friendly(res) };
+                return { ok: false, message: res.status === 422 ? 'That email may already be registered, or the password is too weak.' : await friendly(res) };
       }
       return { ok: true };
     } catch (e) {
@@ -86,5 +86,18 @@
     return token;
   }
 
-  window.KaAuth = { signIn: signIn, signUp: signUp, signOut: signOut, restore: refresh, getToken: getToken, getUser: function () { return user; } };
+    // Check the 6-digit code that was emailed. Reports the server's status and message so the team can see what it says.
+  async function verifyEmail(email, otp) {
+    try {
+      const res = await post('/email-otp/verify-email', { email: email, otp: otp });
+      if (res.ok) return { ok: true };
+      let msg = 'That code did not work. Check it and try again.';
+      try { const d = await res.json(); if (d && d.message) msg = d.message; } catch (e) { /* no message in the reply */ }
+      return { ok: false, status: res.status, message: msg };
+    } catch (e) {
+      return { ok: false, message: 'Could not reach the sign-in service. Check your internet.' };
+    }
+  }
+
+    window.KaAuth = { signIn: signIn, signUp: signUp, signOut: signOut, restore: refresh, getToken: getToken, verifyEmail: verifyEmail, getUser: function () { return user; } };
 })();

@@ -267,9 +267,8 @@
         const r = await window.KaAuth.signUp(name, email, pw);
         btn.disabled = false; btn.textContent = 'Create account';
         if (!r.ok) { err.textContent = r.message; return; }
-        form.hidden = true;
-        msg.hidden = false;
-        msg.textContent = 'Account created. We sent a verification code to your email. Once your email is verified you can log in. If no email arrives, check your spam folder or ask the team.';
+        screens.verify.email = email;
+        location.hash = '#/verify';
       });
     }
   });
@@ -714,6 +713,41 @@
       '</main>' + navBar('profile')
   });
 
+    screens.verify = () => ({
+    title: 'Verify your email',
+    html:
+      header('Verify your email', '#/login') +
+      '<main class="auth">' +
+        '<p class="lede">Type the 6-digit code we emailed you.</p>' +
+        '<form id="verify" class="form" novalidate>' +
+          '<label for="vemail">Email</label><input id="vemail" type="email" autocomplete="email">' +
+          '<label for="otp">6-digit code</label><input id="otp" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code">' +
+          '<p id="err" class="error" role="alert"></p>' +
+          '<button class="btn" type="submit">Verify</button>' +
+        '</form>' +
+        '<p class="center"><a href="#/login">Back to log in</a></p>' +
+      '</main>',
+    after: () => {
+      const form = document.getElementById('verify');
+      const err = document.getElementById('err');
+      const btn = form.querySelector('button[type="submit"]');
+      document.getElementById('vemail').value = screens.verify.email || '';
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('vemail').value.trim();
+        const otp = document.getElementById('otp').value.trim();
+        if (!email || !otp) { err.textContent = 'Enter your email and the 6-digit code.'; return; }
+        if (!window.KaAuth || !window.KaAuth.verifyEmail) { err.textContent = 'Verification is not available right now.'; return; }
+        err.textContent = '';
+        btn.disabled = true; btn.textContent = 'Checking...';
+        const r = await window.KaAuth.verifyEmail(email, otp);
+        btn.disabled = false; btn.textContent = 'Verify';
+        if (r.ok) { location.hash = '#/login'; return; }
+        err.textContent = r.message;
+      });
+    }
+  });
+
   screens.notFound = () => ({
     title: 'Coming soon',
     html:
@@ -767,4 +801,6 @@
 
   window.addEventListener('hashchange', () => route());
   route();
+  if (window.KaAuth) window.KaAuth.restore().then((u) => { if (u) route(true); });
+
 })();
