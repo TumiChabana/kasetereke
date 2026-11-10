@@ -31,9 +31,14 @@ window.KS = {
     ]
 };
 
-// Give every place a photo path. The real photos are added later in apps/web/img/.
-// Until a photo exists, the app shows the coloured letter box instead.
+// Use the real places from Neon (ids 1 to 35) when places-real.js is loaded.
+if (window.KS_REAL) {
+  window.KS.districts = window.KS_REAL.districts;
+  window.KS.places = window.KS_REAL.places;
+}
+
+// Give every place a photo path if it doesn't already have one.
 window.KS.places.forEach(function (p) {
-  p.image = 'img/' + p.id + '.jpg';
+  if (!p.image) p.image = 'img/' + p.id + '.jpg';
 });
 

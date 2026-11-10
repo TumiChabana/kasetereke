@@ -29,9 +29,9 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
   const money = (n) => 'M' + Number(n).toLocaleString('en-US');
-  const getDistrict = (id) => KS.districts.find((d) => d.id === id);
-  const getPlace = (id) => KS.places.find((p) => p.id === id);
-  const isSaved = (id) => state.saved.indexOf(id) !== -1;
+    const getDistrict = (id) => KS.districts.find((d) => String(d.id) === String(id));
+  const getPlace = (id) => KS.places.find((p) => String(p.id) === String(id));
+  const isSaved = (id) => state.saved.some((x) => String(x) === String(id));
   const pad = (n) => String(n).padStart(2, '0');
   const isoDate = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   const nightsBetween = (a, b) => {
@@ -281,7 +281,7 @@
         (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') +
         '<span class="pcard__badge">' + esc(badge) + '</span></div>' +
       '<h3 class="pcard__name">' + esc(p.name) + '</h3>' +
-      '<div class="pcard__meta"><span class="pcard__sub">' + esc(d.name) + '</span><span class="pcard__rate">&#9733; ' + p.rating.toFixed(1) + '</span></div></a>';
+           '<div class="pcard__meta"><span class="pcard__sub">' + esc(d.name) + '</span>' + (p.rating != null ? '<span class="pcard__rate">&#9733; ' + p.rating.toFixed(1) + '</span>' : '') + '</div></a>';
   };
 
   // Home: a titled shelf of cards. picks = [[placeId, badgeText], ...]
@@ -319,8 +319,8 @@
           '<ul class="cats">' + cats.map((c) =>
             '<li><a href="' + c[1] + '"><span class="cats__img"><span aria-hidden="true">' + c[0].charAt(0) + '</span>' +
             '<img src="img/cat-' + c[0].toLowerCase() + '.jpg" alt="" onerror="this.remove()"></span>' + c[0] + '</a></li>').join('') + '</ul>' +
-          shelf('Top picks for you', [['maliba-lodge', 'Family pick'], ['katse-dam', 'Great view']]) +
-          shelf('Trending right now', [['maletsunyane-falls', '#1 spot'], ['sani-pass', 'Bucket list']]) +
+                    shelf('Top picks for you', [[25, 'Family pick'], [18, 'Great view']]) +
+          shelf('Trending right now', [[5, '#1 spot'], [22, 'Bucket list']]) +
         '</main>' + navBar('explore')
     };
   };
@@ -372,8 +372,8 @@
         '<main>' +
           '<p class="eyebrow-free">' + esc(d.name) + ' &ndash; ' + esc(p.tagline) + '</p>' +
           '<ul class="stats">' +
-            '<li><strong>' + p.rating.toFixed(1) + '</strong><span>Rating</span></li>' +
-            '<li><strong>' + p.match + '%</strong><span>Match</span></li>' +
+                        '<li><strong>' + (p.rating != null ? p.rating.toFixed(1) : '-') + '</strong><span>Rating</span></li>' +
+            '<li><strong>' + (p.match != null ? p.match + '%' : '-') + '</strong><span>Match</span></li>' +
             '<li><strong>' + (p.price ? money(p.price) : 'Free') + '</strong><span>' + (p.price ? 'Per night' : 'Entry info soon') + '</span></li>' +
           '</ul>' +
           '<p class="tags">' + p.tags.map((t) => '<span class="tag tag--' + p.type + '">' + esc(t) + '</span>').join('') + '</p>' +
@@ -771,7 +771,7 @@
     const save = e.target.closest('[data-save]');
     if (save) {
       const id = save.dataset.save;
-      state.saved = isSaved(id) ? state.saved.filter((x) => x !== id) : state.saved.concat(id);
+        state.saved = isSaved(id) ? state.saved.filter((x) => String(x) !== String(id)) : state.saved.concat(id);
       writeStore();
       route(true);
       return;
