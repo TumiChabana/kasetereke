@@ -390,3 +390,9 @@ a { color: inherit; }
     flex-shrink: 0;
   }
 }
+
+.badge { display: inline-block; padding: 2px 12px; border-radius: 999px; background: var(--cream); color: var(--ink); font-size: .8125rem; font-weight: 600; text-transform: capitalize; }
+.badge--pending { background: var(--gold-tint); color: var(--gold-dark); }
+.badge--confirmed { background: color-mix(in srgb, var(--success) 15%, var(--white)); color: var(--ink); }
+.badge--completed { background: var(--slate); color: var(--white); }
+.badge--cancelled { background: color-mix(in srgb, var(--error) 12%, var(--white)); color: var(--error); }

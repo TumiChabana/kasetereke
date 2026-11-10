@@ -509,7 +509,7 @@
             '<p class="small">Booking ID: ' + esc(b.id) + '</p>' +
             '<dl>' +
               row('Check-in', prettyDate(b.checkIn)) + row('Check-out', prettyDate(b.checkOut)) +
-              row('Nights', b.nights) + row('Guests', b.guests) +row('Status', esc(b.status))+
+                            row('Nights', b.nights) + row('Guests', b.guests) + row('Status', badge(b.status)) +
               '<div class="row row--total"><dt>Total</dt><dd>' + money(b.total) + '</dd></div>' +
             '</dl>' +
             '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle') + '</div>' +
@@ -729,7 +729,7 @@
     document.title = screen.title + ' - KaSetereke';
     app.innerHTML = screen.html;
     if (screen.after) screen.after();
-    if (!keepScroll) window.scrollTo(0, 0);
+    if (!keepScroll) { window.scrollTo(0, 0); app.scrollTop = 0; }
   }
 
   // One click listener handles every Save star and the print button.
