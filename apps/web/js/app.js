@@ -85,7 +85,7 @@
           '<h3 class="card__name">' + esc(p.name) + '</h3>' +
           '<p class="card__sub">' + esc(p.tagline) + '</p>' +
           (p.price ? '<p class="card__price">' + money(p.price) + ' a night</p>' : '<p class="card__price card__price--heritage">Heritage and nature</p>') +
-          '<p class="card__meta"><span class="match">' + p.match + '% match</span><span>&#9733; ' + p.rating.toFixed(1) + '</span></p>' +
+                    (p.rating != null ? '<p class="card__meta">' + (p.match != null ? '<span class="match">' + p.match + '% match</span>' : '') + '<span>&#9733; ' + p.rating.toFixed(1) + '</span></p>' : '') +
         '</div>' +
       '</a>' +
       saveButton(p) +
