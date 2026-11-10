@@ -149,24 +149,39 @@
     title: 'Welcome',
     html:
       '<main class="splash">' +
+        '<div class="collage" aria-hidden="true">' + ['avani-lesotho', 'thaba-bosiu', 'maletsunyane-falls', 'maliba-lodge', 'katse-dam', 'sani-pass'].map((id) => '<img src="img/' + id + '.jpg" alt="" onerror="this.remove()">').join('') + '</div>' +
+        '<svg class="splash__pin" viewBox="0 0 24 24" width="28" height="28" aria-hidden="true" fill="currentColor" fill-rule="evenodd"><path d="M12 22s7-6.5 7-12a7 7 0 0 0-14 0c0 5.5 7 12 7 12zm0-9a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>' +
         '<h1>KaSetereke</h1>' +
         '<p class="splash__tag">10 districts. One tap each.</p>' +
-        '<a class="btn" href="#/login">Get started</a>' +
+        '<a class="btn" href="#/onboarding">Get started</a>' +
+      '</main>'
+  });
+
+    screens.onboarding = () => ({
+    title: 'Welcome',
+    html:
+      '<main class="onboard">' +
+        '<div class="onboard__img"><span aria-hidden="true">K</span>' +
+          '<img src="img/onboarding.jpg" alt="A view of Lesotho" onerror="this.remove()"></div>' +
+        '<h1 class="onboard__title">Find what&rsquo;s near you</h1>' +
+        '<p class="onboard__text">Pick your district and see local stays and heritage sites instantly.</p>' +
+        '<a class="btn" href="#/login">Next</a>' +
       '</main>'
   });
 
   screens.login = () => ({
     title: 'Log in',
     html:
-      header('Welcome back') +
-      '<main>' +
+      '<main class="auth">' +
+        '<h1 class="auth__title">Welcome back</h1>' +
         '<p class="lede">Sign in to keep exploring by district.</p>' +
         '<form id="login" class="form" novalidate>' +
-          '<label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@example.com">' +
+          '<label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@gmail.com">' +
           '<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">' +
           '<button class="btn" type="submit">Log in</button>' +
         '</form>' +
         '<p class="small">Practice login: nothing is checked or saved yet. Real login arrives with the database.</p>' +
+                '<p class="center">No account? <a class="link" href="#/signup">Sign up</a></p>' +
         '<p class="center"><a href="#/home">Continue without an account</a></p>' +
       '</main>',
     after: () => {

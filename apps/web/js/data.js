@@ -22,7 +22,7 @@ window.KS = {
     { id: 'thaba-bosiu',         districtId: 'maseru',      type: 'heritage', name: 'Thaba-Bosiu',            tagline: 'Mountain fortress',       price: null, rating: 4.8, match: 94, tags: ['Heritage'] },
     { id: 'maletsunyane-falls',  districtId: 'maseru',      type: 'heritage', name: 'Maletsunyane Falls',     tagline: '192 metre waterfall',     price: null, rating: 4.8, match: 96, tags: ['Nature'] },
     { id: 'malealea-lodge',      districtId: 'mafeteng',    type: 'stay',     name: 'Malealea Lodge',         tagline: 'Malealea',                price: 660,  rating: 4.4, match: 81, tags: ['Free WiFi', 'Parking'] },
-    { id: 'maliba-lodge',        districtId: 'leribe',      type: 'stay',     name: 'Maliba Mountain Lodge',  tagline: 'Mountain lodge',          price: 1500, rating: 4.9, match: 90, tags: ['Free WiFi', 'Pool'] },
+    { id: 'maliba-lodge',        districtId: 'butha-buthe',      type: 'stay',     name: 'Maliba Mountain Lodge',  tagline: 'Mountain lodge',          price: 1500, rating: 4.9, match: 90, tags: ['Free WiFi', 'Pool'] },
     { id: 'tsehlanyane-park',    districtId: 'leribe',      type: 'heritage', name: 'Tsehlanyane National Park', tagline: 'Triple waterfall',     price: null, rating: 4.7, match: 85, tags: ['Nature'] },
     { id: 'motherland-guest',    districtId: 'thaba-tseka', type: 'stay',     name: 'Motherland Guest House', tagline: 'Thaba-Tseka town',        price: 600,  rating: 4.6, match: 79, tags: ['Free WiFi'] },
     { id: 'katse-dam',           districtId: 'thaba-tseka', type: 'heritage', name: 'Katse Dam',              tagline: 'Dam and viewpoints',      price: null, rating: 4.8, match: 87, tags: ['Great view'] },
