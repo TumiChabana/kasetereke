@@ -90,6 +90,58 @@
   const empty = (title, text, href, label) =>
     '<div class="empty"><h2>' + esc(title) + '</h2><p>' + esc(text) + '</p><a class="btn" href="' + href + '">' + esc(label) + '</a></div>';
 
+    // ---------- blockchain panel (read-only, see docs/chain-spec.md) ----------
+  // chain.js wants database column names, but this app uses camelCase, so translate first.
+  const bookingRow = (b) => ({
+    id: b.id, place_id: b.placeId, check_in: b.checkIn, check_out: b.checkOut,
+    guests: b.guests, total_amount: b.total, status: b.status
+  });
+  // Only ever show the start and end of a fingerprint.
+  const shortHash = (h) => (h ? h.slice(0, 6) + '...' + h.slice(-4) : '');
+
+  const CHAIN_TEXT = {
+    idle: ['Not checked yet', 'Press Verify to compare this record with the blockchain.'],
+    loading: ['Checking...', 'Asking the blockchain. This can take a few seconds.'],
+    verified: ['Verified on blockchain', 'This record matches the fingerprint saved on the blockchain.'],
+    pending: ['Not on the blockchain yet', 'Nothing has been recorded for this one yet. This is normal for sample bookings.'],
+    mismatch: ['Record was changed', 'The fingerprint on the blockchain does not match this record any more.'],
+    error: ['Could not check', 'The blockchain could not be reached. Your booking is not affected. Try again later.']
+  };
+
+  const chainHtml = (state, result, txHash) => {
+    const t = CHAIN_TEXT[state] || CHAIN_TEXT.error;
+    let extra = '';
+    if (result && result.local) {
+      extra += '<p class="chain__hash">Record fingerprint: ' + shortHash(result.local) + '</p>';
+      if (state === 'verified' || state === 'mismatch') extra += '<p class="chain__hash">On the blockchain: ' + shortHash(result.onChain) + '</p>';
+      if (state === 'verified' && result.time) extra += '<p class="chain__hash">Recorded on ' + prettyDate(result.time.slice(0, 10)) + '</p>';
+    }
+    if (txHash && /^0x[0-9a-fA-F]{64}$/.test(txHash)) {
+      extra += '<p class="chain__hash"><a href="https://sepolia.etherscan.io/tx/' + txHash + '" target="_blank" rel="noopener">View on Etherscan</a></p>';
+    }
+    return '<p class="chain__title">' + t[0] + '</p><p class="chain__text">' + t[1] + '</p>' + extra +
+      (state === 'loading' ? '' : '<button type="button" class="btn btn--ghost chain__btn" data-verify>' + (state === 'idle' ? 'Verify' : 'Verify again') + '</button>');
+  };
+
+  const renderChain = (box, state, result, txHash) => {
+    box.className = 'chain chain--' + (CHAIN_TEXT[state] ? state : 'error');
+    box.innerHTML = chainHtml(state, result, txHash);
+  };
+
+  // Ask the blockchain. Any problem (no internet, library missing, too slow) shows "Could not check".
+  async function runVerify(box, row, kind, txHash) {
+    renderChain(box, 'loading');
+    try {
+      if (!window.KaChain) throw new Error('chain tools not loaded');
+      const call = kind === 'review' ? window.KaChain.verifyReview(row) : window.KaChain.verifyBooking(row);
+      const timeout = new Promise((resolve, reject) => setTimeout(() => reject(new Error('timeout')), 15000));
+      const result = await Promise.race([call, timeout]);
+      if (box.isConnected) renderChain(box, result.status, result, txHash);
+    } catch (e) {
+      if (box.isConnected) renderChain(box, 'error');
+    }
+  }
+  
   // ---------- screens: each returns { title, html, after? } ----------
   const screens = {};
 
@@ -261,7 +313,7 @@
         function update() {
           if (ci.value && co.value && co.value <= ci.value) co.min = ci.value;
           const n = ci.value && co.value ? nightsBetween(ci.value, co.value) : 0;
-          sum.textContent = n > 0 ? n + (n === 1 ? ' night x ' : ' nights x ') + money(p.price) + ' = ' + money(n * p.price) : '';
+          sum.innerHTML = n > 0 ? '<span>' + n + (n === 1 ? ' night x ' : ' nights x ') + money(p.price) + '</span><strong>' + money(n * p.price) + '</strong>' : '';
           return n;
         }
         [ci, co, guests].forEach((el) => el.addEventListener('input', update));
@@ -295,6 +347,7 @@
             '</fieldset>' +
             '<label for="phone">Mobile money number</label><input id="phone" type="tel" inputmode="tel" autocomplete="off" required>' +
             '<p class="small">Practice payment only. No money moves and this number is not saved.</p>' +
+                        '<p class="sum"><span>Total</span><strong>' + money(d.total) + '</strong></p>' +
             '<p id="err" class="error" role="alert"></p>' +
             '<button class="btn" type="submit">Pay ' + money(d.total) + '</button>' +
           '</form>' +
@@ -330,7 +383,7 @@
       title: 'Booking confirmed',
       html:
         '<main class="done">' +
-          '<svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="none" stroke="#34c759" stroke-width="4"/><path d="M18 33l9 9 19-21" fill="none" stroke="#34c759" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
+          '<svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="4"/><path d="M18 33l9 9 19-21" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
           '<h1>Booking confirmed!</h1>' +
           '<p>' + esc(p.name) + ' &ndash; ' + b.nights + (b.nights === 1 ? ' night' : ' nights') + ', ' + b.guests + (b.guests === 1 ? ' guest' : ' guests') + '</p>' +
           '<a class="btn" href="#/receipt/' + b.id + '">View receipt</a>' +
@@ -357,7 +410,7 @@
               row('Nights', b.nights) + row('Guests', b.guests) +
               '<div class="row row--total"><dt>Total paid</dt><dd>' + money(b.total) + '</dd></div>' +
             '</dl>' +
-            '<p class="small">Blockchain record: not recorded yet (added in Part B).</p>' +
+            '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle') + '</div>' +
           '</section>' +
           '<button type="button" class="btn btn--ghost no-print" data-print>Download PDF</button>' +
         '</main>' + navBar('trips')
@@ -472,6 +525,13 @@
       state.saved = isSaved(id) ? state.saved.filter((x) => x !== id) : state.saved.concat(id);
       writeStore();
       route(true);
+      return;
+    }
+    const verify = e.target.closest('[data-verify]');
+    if (verify) {
+      const box = verify.closest('.chain');
+      const b = box && findBooking(box.dataset.booking);
+      if (b) runVerify(box, bookingRow(b), 'booking', b.chainTxHash);
       return;
     }
     if (e.target.closest('[data-print]')) window.print();

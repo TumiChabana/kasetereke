@@ -190,3 +190,49 @@ a { color: inherit; }
 .hero + main .btn { margin-top: 16px; letter-spacing: .15em; }
 .hero + main .center { text-align: left; }
 .hero + main .center a { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink); letter-spacing: .1em; }
+
+
+/* ===== Forms and headers with a back arrow (Figma pages 15, 16, 19) ===== */
+.top:has(.top__back) .top__title { flex: 1; text-align: center; margin-right: 30px; letter-spacing: .1em; }
+
+.form input:not([type="radio"]):not([type="checkbox"]), .form select, .form textarea { min-height: 52px; padding: 12px 16px; border-radius: 16px; }
+.form textarea { min-height: 120px; }
+.sum { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 20px 0 4px; font-weight: 400; }
+.sum strong { font-weight: 700; }
+.form .btn { letter-spacing: .12em; }
+
+
+/* ===== Payment method cards (Figma page 16) ===== */
+.choice label { flex-direction: row-reverse; justify-content: space-between; min-height: 64px; padding: 12px 16px; border-radius: 16px; font-weight: 700; cursor: pointer; }
+.choice label:has(input:checked) { border-color: var(--ink); }
+.choice input { width: 24px; height: 24px; accent-color: var(--ink); }
+.choice legend { margin-bottom: 4px; }
+
+
+/* ===== Confirmation screens (Figma pages 17 and 20) ===== */
+.done svg { color: var(--success); margin-bottom: 16px; }
+.done h1 { font-size: 1.75rem; letter-spacing: .04em; }
+.done p { margin: 0 0 16px; color: var(--grey); letter-spacing: .05em; }
+.done .btn { letter-spacing: .15em; }
+
+
+/* ===== Receipt (Figma page 18) ===== */
+.receipt h2 { font-size: 1.25rem; letter-spacing: .08em; }
+.receipt h2 + .small { margin: 4px 0 0; padding-bottom: 12px; border-bottom: 1px solid var(--ink); letter-spacing: .06em; }
+.receipt .row { padding: 12px 0; border-bottom: 0; letter-spacing: .06em; }
+.receipt .row dt { color: var(--ink); }
+.receipt .row dd { font-weight: 500; }
+.receipt .row--total dd { font-weight: 700; }
+.no-print.btn--ghost { letter-spacing: .15em; font-weight: 400; }
+
+
+/* ===== Blockchain panel (Receipt and reviews) ===== */
+.chain { margin-top: 16px; padding: 16px; border: 1px solid var(--grey-light); border-left-width: 6px; border-radius: 12px; background: var(--cream); color: var(--ink); }
+.chain--loading { border-color: var(--slate); }
+.chain--verified { border-color: var(--success); background: color-mix(in srgb, var(--success) 12%, var(--white)); }
+.chain--pending { border-color: var(--gold); background: var(--gold-tint); }
+.chain--mismatch, .chain--error { border-color: var(--error); background: color-mix(in srgb, var(--error) 8%, var(--white)); }
+.chain__title { margin: 0; font-weight: 700; }
+.chain__text { margin: 4px 0 0; font-size: .875rem; }
+.chain__hash { margin: 8px 0 0; font: .8125rem ui-monospace, Consolas, monospace; word-break: break-all; }
+.chain__btn { margin-top: 12px; }
