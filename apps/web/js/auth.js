@@ -41,19 +41,23 @@
     return user;
   }
 
-  // Turn a server status into a short, friendly message.
-  function friendly(res) {
+  // Turn a server reply into a short, friendly message. It reads the reply body first.
+  async function friendly(res) {
+    let body = null;
+    try { body = await res.clone().json(); } catch (e) { /* no body in the reply */ }
+    const text = body ? String((body.code || '') + ' ' + (body.message || '')) : '';
+    if (res.status === 403 && /verif/i.test(text)) return 'Please verify your email first. Open the Verify your email screen and type the code we emailed you.';
     if (res.status === 401) return 'Wrong email or password.';
     if (res.status === 400) return 'Check your email and password and try again.';
-    if (res.status === 403) return 'Please verify your email first. Check your inbox for the code.';
     if (res.status === 429) return 'Too many tries. Wait a moment and try again.';
+    if (body && body.message) return String(body.message);
     return 'Something went wrong. Please try again.';
   }
 
   async function signIn(email, password) {
     try {
       const res = await post('/sign-in/email', { email: email, password: password });
-        if (!res.ok) return { ok: false, message: await friendly(res) };
+      if (!res.ok) return { ok: false, message: await friendly(res) };
       await refresh();
       return user ? { ok: true } : { ok: false, message: 'Could not start your session. Please try again.' };
     } catch (e) {
@@ -65,7 +69,7 @@
     try {
       const res = await post('/sign-up/email', { name: name, email: email, password: password });
       if (!res.ok) {
-                return { ok: false, message: res.status === 422 ? 'That email may already be registered, or the password is too weak.' : await friendly(res) };
+        return { ok: false, message: res.status === 422 ? 'That email may already be registered, or the password is too weak.' : await friendly(res) };
       }
       return { ok: true };
     } catch (e) {
@@ -86,7 +90,7 @@
     return token;
   }
 
-    // Check the 6-digit code that was emailed. Reports the server's status and message so the team can see what it says.
+  // Check the 6-digit code that was emailed. Reports the server's status and message so the team can see what it says.
   async function verifyEmail(email, otp) {
     try {
       const res = await post('/email-otp/verify-email', { email: email, otp: otp });
@@ -99,5 +103,5 @@
     }
   }
 
-    window.KaAuth = { signIn: signIn, signUp: signUp, signOut: signOut, restore: refresh, getToken: getToken, verifyEmail: verifyEmail, getUser: function () { return user; } };
+  window.KaAuth = { signIn: signIn, signUp: signUp, signOut: signOut, restore: refresh, getToken: getToken, verifyEmail: verifyEmail, getUser: function () { return user; } };
 })();
