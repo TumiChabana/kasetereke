@@ -273,3 +273,15 @@ a { color: inherit; }
 .auth__title { font-size: 1.5rem; letter-spacing: .12em; margin-bottom: 8px; }
 .link { color: var(--gold-dark); font-weight: 600; text-underline-offset: 3px; }
 .auth .form .btn { margin-top: 24px; letter-spacing: .15em; }
+
+
+/* ===== Sign up extras ===== */
+.form .check { display: flex; align-items: flex-start; gap: 10px; min-height: 44px; margin: 16px 0 0; font-size: .875rem; font-weight: 400; }
+.form .check input { flex: none; width: 24px; height: 24px; margin: 0; accent-color: var(--ink); }
+.notice { margin: 16px 0; padding: 16px; border: 1px solid var(--gold); border-left-width: 6px; border-radius: 12px; background: var(--gold-tint); }
+
+
+/* ===== Text pages (privacy notice) ===== */
+.prose h2 { margin: 24px 0 8px; font-size: 1.05rem; letter-spacing: .04em; }
+.prose h2:first-child { margin-top: 0; }
+.prose p { margin: 0 0 8px; }

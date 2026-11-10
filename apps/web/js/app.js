@@ -9,7 +9,11 @@
   const STORE_KEY = 'ksetereke:v1';
 
   // Dummy user: never put a real name, email or phone number in this public repo.
-  const USER = { name: 'Thabo Mokoena', email: 'thabo@example.com' };
+  const USER = { name: 'Thabo Mokoena', email: 'thabo@gmail.com' };
+
+    // Who is using the app: a real signed-in person, the labelled demo account, or nobody (a guest).
+  let demoMode = false;
+  const me = () => (window.KaAuth && window.KaAuth.getUser()) || (demoMode ? USER : null);
 
   // ---------- storage (wrapped in try/catch because browsers can block it) ----------
   function readStore() {
@@ -178,14 +182,76 @@
         '<form id="login" class="form" novalidate>' +
           '<label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@gmail.com">' +
           '<label for="pw">Password</label><input id="pw" type="password" autocomplete="current-password">' +
+          '<p id="err" class="error" role="alert"></p>' +
           '<button class="btn" type="submit">Log in</button>' +
         '</form>' +
-        '<p class="small">Practice login: nothing is checked or saved yet. Real login arrives with the database.</p>' +
+        '<button type="button" id="demo" class="btn btn--ghost">Try the demo account</button>' +
+        '<p class="small">Demo account: sample data only, nothing is saved to the server.</p>' +
                 '<p class="center">No account? <a class="link" href="#/signup">Sign up</a></p>' +
         '<p class="center"><a href="#/home">Continue without an account</a></p>' +
       '</main>',
     after: () => {
-      document.getElementById('login').addEventListener('submit', (e) => { e.preventDefault(); location.hash = '#/home'; });
+      const form = document.getElementById('login');
+      const err = document.getElementById('err');
+      const btn = form.querySelector('button[type="submit"]');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const email = document.getElementById('email').value.trim();
+        const pw = document.getElementById('pw').value;
+        if (!email || !pw) { err.textContent = 'Enter your email and password.'; return; }
+        if (!window.KaAuth) { err.textContent = 'Sign-in is not available right now. Try the demo account.'; return; }
+        err.textContent = '';
+        btn.disabled = true; btn.textContent = 'Logging in...';
+        const r = await window.KaAuth.signIn(email, pw);
+        if (r.ok) { demoMode = false; location.hash = '#/home'; return; }
+        btn.disabled = false; btn.textContent = 'Log in';
+        err.textContent = r.message;
+      });
+      document.getElementById('demo').addEventListener('click', () => { demoMode = true; location.hash = '#/home'; });
+    }
+  });
+
+    screens.signup = () => ({
+    title: 'Sign up',
+    html:
+      '<main class="auth">' +
+        '<h1 class="auth__title">Create your account</h1>' +
+        '<p class="lede">Join KaSetereke to save places and plan trips.</p>' +
+        '<form id="signup" class="form" novalidate>' +
+          '<label for="name">Full name</label><input id="name" type="text" autocomplete="name">' +
+          '<label for="email">Email</label><input id="email" type="email" autocomplete="email" placeholder="you@gmail.com">' +
+          '<label for="pw">Password</label><input id="pw" type="password" autocomplete="new-password">' +
+          '<p class="small">At least 8 characters.</p>' +
+                    '<label class="check"><input id="agree" type="checkbox"><span>I have read the <a class="link" href="#/privacy">privacy notice</a>.</span></label>' +
+          '<p id="err" class="error" role="alert"></p>' +
+          '<button class="btn" type="submit">Create account</button>' +
+        '</form>' +
+        '<p id="msg" class="notice" role="status" hidden></p>' +
+        '<p class="center">Already have an account? <a class="link" href="#/login">Log in</a></p>' +
+      '</main>',
+    after: () => {
+      const form = document.getElementById('signup');
+      const err = document.getElementById('err');
+      const msg = document.getElementById('msg');
+      const btn = form.querySelector('button[type="submit"]');
+      form.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const name = document.getElementById('name').value.trim();
+        const email = document.getElementById('email').value.trim();
+        const pw = document.getElementById('pw').value;
+        if (!name || !email || !pw) { err.textContent = 'Fill in your name, email and password.'; return; }
+        if (pw.length < 8) { err.textContent = 'Your password needs at least 8 characters.'; return; }
+        if (!document.getElementById('agree').checked) { err.textContent = 'Please tick the box to confirm you have read the privacy notice.'; return; }
+        if (!window.KaAuth) { err.textContent = 'Sign-up is not available right now.'; return; }
+        err.textContent = '';
+        btn.disabled = true; btn.textContent = 'Creating account...';
+        const r = await window.KaAuth.signUp(name, email, pw);
+        btn.disabled = false; btn.textContent = 'Create account';
+        if (!r.ok) { err.textContent = r.message; return; }
+        form.hidden = true;
+        msg.hidden = false;
+        msg.textContent = 'Account created. We sent a verification code to your email. Once your email is verified you can log in. If no email arrives, check your spam folder or ask the team.';
+      });
     }
   });
 
@@ -512,6 +578,25 @@
         '<p class="small">Practice account. Real accounts arrive with the database.</p>' +
         '<a class="btn btn--ghost" href="#/">Log out</a>' +
       '</main>' + navBar('profile')
+  });
+
+    screens.privacy = () => ({
+    title: 'Privacy notice',
+    html:
+      header('Privacy notice', '#/signup') +
+      '<main class="prose">' +
+        '<h2>What we collect</h2>' +
+        '<p>Your name and email address, so you can have an account. The bookings and reviews you make.</p>' +
+        '<h2>Where it is kept</h2>' +
+        '<p>Account details and bookings are kept in the project database. Places you save and your trip list are kept only in this browser, on this device.</p>' +
+        '<h2>The blockchain</h2>' +
+        '<p>Only a fingerprint (a hash) of a booking or review is recorded on a public test blockchain. Names, emails, phone numbers and review text are never put on it.</p>' +
+        '<h2>Payments</h2>' +
+        '<p>Payments in this app are practice only. No money moves and your mobile money number is not saved.</p>' +
+        '<h2>Deleting your account</h2>' +
+        '<p>You can delete your account from your Profile. This is permanent.</p>' +
+        '<p class="small">This is a short student-project notice and has not yet been reviewed by the data-protection owner on the team.</p>' +
+      '</main>'
   });
 
   screens.notFound = () => ({
