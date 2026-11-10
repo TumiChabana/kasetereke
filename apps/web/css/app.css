@@ -236,3 +236,13 @@ a { color: inherit; }
 .chain__text { margin: 4px 0 0; font-size: .875rem; }
 .chain__hash { margin: 8px 0 0; font: .8125rem ui-monospace, Consolas, monospace; word-break: break-all; }
 .chain__btn { margin-top: 12px; }
+
+
+/* ===== Review form (Figma page 19) ===== */
+.form legend { padding: 0; }
+.stars span { font-size: 1rem; }
+
+
+/* ===== Thank-you smiley (Figma page 20) ===== */
+.done .smiley { color: var(--ink); margin-bottom: 16px; }
+.smiley__face { fill: var(--gold-light); stroke: currentColor; }

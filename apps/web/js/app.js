@@ -454,7 +454,7 @@
     return {
       title: 'Thank you',
       html:
-        '<main class="done"><h1>Thank you!</h1><p>Your review helps other travellers.</p>' +
+        '<main class="done"><svg class="smiley" viewBox="0 0 64 64" width="96" height="96" aria-hidden="true"><circle class="smiley__face" cx="32" cy="32" r="30" stroke-width="3"/><circle cx="23" cy="24" r="2" fill="currentColor"/><circle cx="41" cy="24" r="2" fill="currentColor"/><path d="M20 36h24a12 12 0 0 1-24 0z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="round"/></svg><h1>Thank you!</h1><p>Your review helps other travellers.</p>' +
         '<a class="btn" href="' + (p ? '#/place/' + p.id : '#/home') + '">Back to listing</a></main>'
     };
   };
