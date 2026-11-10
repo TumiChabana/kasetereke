@@ -589,13 +589,14 @@
     return {
       title: 'Profile',
       html:
-        '<header class="top top--tall top--center"><div class="avatar" aria-hidden="true">' + esc(initials) + '</div><h1 class="top__title">' + esc(name) + '</h1><p>' + esc(email) + '</p></header>' +
+        '<header class="top top--tall top--center"><a class="top__back" href="#/home" aria-label="Back">' + ICON_BACK + '</a><div class="avatar" aria-hidden="true">' + esc(initials) + '</div><h1 class="top__title">' + esc(name) + '</h1><p>' + esc(email) + '</p></header>' +
         '<main>' +
           '<ul class="stats">' +
             '<li><strong>' + state.saved.length + '</strong><span>Saved</span></li>' +
             '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
             '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
           '</ul>' +
+                    (u ? '<ul class="menu"><li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li></ul>' : '') +
           (u ? '' : '<p class="small">You are browsing as a guest.</p>') +
           (u && !window.KaAuth.getUser() ? '<p class="small">Demo account: sample data only.</p>' : '') +
                     (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
@@ -635,6 +636,76 @@
         '<p>You can delete your account from your Profile. This is permanent.</p>' +
         '<p class="small">This is a short student-project notice and has not yet been reviewed by the data-protection owner on the team.</p>' +
       '</main>'
+
+      ,
+    after: () => {
+      document.querySelector('.top__back').addEventListener('click', (e) => {
+        e.preventDefault();
+        if (history.length > 1) history.back(); else location.hash = '#/signup';
+      });
+    }
+
+
+  });
+
+    screens.search = () => ({
+    title: 'Search',
+    html:
+      '<header class="top top--search">' +
+        '<a class="top__back" href="#/home" aria-label="Back">' + ICON_BACK + '</a>' +
+        '<div class="search search--list"><input id="q" type="search" placeholder="Search places" aria-label="Search places" autocomplete="off">' +
+          '<svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></div>' +
+      '</header>' +
+      '<main><div id="results" aria-live="polite"></div></main>' + navBar('explore'),
+    after: () => {
+      const q = document.getElementById('q');
+      const out = document.getElementById('results');
+      q.value = screens.search.last || '';
+      const show = () => {
+        const t = q.value.trim().toLowerCase();
+        if (!t) { out.innerHTML = '<p class="small">Type a place, a district, or a word like waterfall.</p>'; return; }
+        const hits = KS.places.filter((p) => {
+          const d = getDistrict(p.districtId);
+          return (p.name + ' ' + p.tagline + ' ' + p.tags.join(' ') + ' ' + (d ? d.name : '')).toLowerCase().indexOf(t) !== -1;
+        });
+        out.innerHTML = hits.length ? hits.map(card).join('') : empty('No places match', 'Try a different word, or browse by district.', '#/districts', 'Browse districts');
+      };
+      q.addEventListener('input', () => { screens.search.last = q.value; show(); });
+      show();
+      if (!q.value) q.focus();
+    }
+  });
+
+    screens.offline = () => ({
+    title: 'Offline',
+    html:
+      '<main class="done">' +
+        '<svg viewBox="0 0 64 64" width="96" height="96" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" style="color: var(--slate)"><circle cx="28" cy="28" r="20"/><path d="M8 28h40M28 8c-8 8-8 32 0 40M28 8c8 8 8 32 0 40"/><path d="M42 42l14 14M56 42L42 56"/></svg>' +
+        '<h1>You&rsquo;re offline</h1>' +
+        '<p>Check your internet connection and try again.</p>' +
+        '<p id="offmsg" class="small" role="status"></p>' +
+        '<button type="button" class="btn" id="retry">Retry</button>' +
+        '<a class="btn btn--ghost" href="#/saved">View saved places</a>' +
+      '</main>',
+    after: () => {
+      document.getElementById('retry').addEventListener('click', () => {
+        if (navigator.onLine) { location.hash = '#/home'; }
+        else { document.getElementById('offmsg').textContent = 'Still offline. Try again in a moment.'; }
+      });
+    }
+  });
+
+    screens.settings = () => ({
+    title: 'Settings',
+    html:
+      header('Settings', '#/profile') +
+      '<main>' +
+        '<ul class="menu">' +
+          '<li><a href="#/privacy">Privacy notice</a></li>' +
+        '</ul>' +
+        '<p class="small">Language: English (the only language for now).</p>' +
+        '<p class="small">Notifications, offline maps and distance units will appear here when those features are built.</p>' +
+      '</main>' + navBar('profile')
   });
 
   screens.notFound = () => ({

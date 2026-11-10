@@ -285,3 +285,67 @@ a { color: inherit; }
 .prose h2 { margin: 24px 0 8px; font-size: 1.05rem; letter-spacing: .04em; }
 .prose h2:first-child { margin-top: 0; }
 .prose p { margin: 0 0 8px; }
+
+/* Profile menu rows (Edit profile, Settings) */
+.menu {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  border-top: 1px solid var(--grey-light);
+}
+.menu a {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--grey-light);
+  color: var(--ink);
+  text-decoration: none;
+  font-weight: 500;
+}
+.menu a::after {
+  content: '\203A';
+  font-size: 24px;
+  color: var(--gold-dark);
+}
+
+/* Profile: put the back arrow in the top-left corner */
+.top--center {
+  position: relative;
+}
+.top--center .top__back {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  color: var(--white);
+}
+
+/* Profile: keep the name centred even with a back arrow */
+.top--center .top__title {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  text-align: center;
+}
+
+/* Search screen: the text box sits inside the white pill */
+.search input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+.search:focus-within {
+  outline: 3px solid var(--gold-light);
+  outline-offset: 2px;
+}
