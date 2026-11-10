@@ -1,6 +1,6 @@
 /* KaSetereke traveller app: one page, many screens, switched by the #hash in the address bar.
-   No framework. Data comes from js/data.js; saved places, bookings and reviews live in this browser
-   (localStorage) until the database is connected. */
+   No framework. Places come from js/data.js. Saved places and reviews live in this browser (localStorage).
+   Bookings of signed-in travellers live in Neon (through KaApi). Guests and the demo account use local sample bookings. */
 (function () {
   'use strict';
 
@@ -29,9 +29,9 @@
     { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
   ));
   const money = (n) => 'M' + Number(n).toLocaleString('en-US');
-  const getDistrict = (id) => KS.districts.find((d) => d.id === id);
-  const getPlace = (id) => KS.places.find((p) => p.id === id);
-  const isSaved = (id) => state.saved.indexOf(id) !== -1;
+  const getDistrict = (id) => KS.districts.find((d) => String(d.id) === String(id));
+  const getPlace = (id) => KS.places.find((p) => String(p.id) === String(id));
+  const isSaved = (id) => state.saved.some((x) => String(x) === String(id));
   const pad = (n) => String(n).padStart(2, '0');
   const isoDate = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   const nightsBetween = (a, b) => {
@@ -43,6 +43,48 @@
     const [y, m, d] = s.split('-').map(Number);
     return new Date(y, m - 1, d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
   };
+
+  // ---------- bookings: Neon (signed in) or local sample (guest / demo) ----------
+  // Uses the real KaApi from api.js: createBooking(b), listMyBookings(). KaApi throws a plain-English Error on failure.
+  const Api = () => window.KaApi || null;
+
+  // Make a booking from a database row. The DB is the source of truth, so keep the raw values.
+  function fromRow(r) {
+    const ci = String(r.check_in).slice(0, 10);   // must stay YYYY-MM-DD
+    const co = String(r.check_out).slice(0, 10);
+    return {
+      id: String(r.id),
+      placeId: r.place_id,
+      checkIn: ci, checkOut: co,
+      guests: Number(r.guests),
+      nights: nightsBetween(ci, co),
+      total: Number(r.total_amount),
+      status: String(r.status),                    // lowercase, as stored
+      chainTxHash: r.chain_tx_hash || null,
+      createdAt: r.created_at || '',
+      remote: true
+    };
+  }
+  async function remoteCreate(p, d) {
+    if (!Api()) throw new Error('Booking service is not available.');
+    const row = await Api().createBooking({ placeId: p.id, checkIn: d.checkIn, checkOut: d.checkOut, guests: d.guests, total: d.total });
+    if (!row || !row.id) throw new Error('The booking was not saved.');
+    return fromRow(row);
+  }
+  async function remoteList() {
+    if (!Api()) throw new Error('Booking service is not available.');
+    return (await Api().listMyBookings() || []).map(fromRow);
+  }
+  async function remoteGet(id) {
+    return (await remoteList()).find((b) => b.id === id) || null;
+  }
+
+  // One place to look a booking up: memory first, then this device's samples.
+  const cache = {};
+  const remember = (b) => { cache[b.id] = b; return b; };
+  const findBooking = (id) => cache[id] || state.bookings.find((b) => b.id === id);
+  // Neon ids are long uuids. Show a short friendly label, but always fingerprint the full id.
+  const displayId = (b) => (/^K5-/.test(b.id) ? b.id : 'K5-' + b.id.slice(0, 5).toUpperCase());
 
   // ---------- shared pieces (header, bottom nav, list card) ----------
   const ICON_BACK = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -76,6 +118,10 @@
   const saveButton = (p) =>
     '<button type="button" class="save" data-save="' + p.id + '" aria-pressed="' + isSaved(p.id) + '" aria-label="Save ' + esc(p.name) + '">' +
     (isSaved(p.id) ? '&#9733;' : '&#9734;') + '</button>';
+
+  const thumb = (p) =>
+    '<div class="thumb thumb--' + p.type + '"><span aria-hidden="true">' + esc(p.name.charAt(0)) + '</span>' +
+    (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>';
 
   const card = (p) =>
     '<article class="card card--' + p.type + '">' +
@@ -332,7 +378,7 @@
       '<main>' +
         '<p class="lede">One tap, no typing needed.</p>' +
         '<ul class="grid">' + KS.districts.map((d) => {
-          const n = KS.places.filter((p) => p.districtId === d.id).length;
+          const n = KS.places.filter((p) => String(p.districtId) === String(d.id)).length;
           return '<li><a class="dbtn" href="#/district/' + d.id + '"><span>' + esc(d.name) + '</span><small>' + n + (n === 1 ? ' place' : ' places') + '</small></a></li>';
         }).join('') + '</ul>' +
       '</main>' + navBar('explore')
@@ -343,7 +389,7 @@
     if (!d) return screens.notFound();
     const tab = args[1] || 'all';
     const wanted = { all: null, stays: 'stay', heritage: 'heritage' }[tab];
-    const list = KS.places.filter((p) => p.districtId === d.id && (!wanted || p.type === wanted));
+    const list = KS.places.filter((p) => String(p.districtId) === String(d.id) && (!wanted || p.type === wanted));
     const tabs = [['all', 'All'], ['stays', 'Stays'], ['heritage', 'Heritage']].map((t) =>
       '<a class="tab" href="#/district/' + d.id + (t[0] === 'all' ? '' : '/' + t[0]) + '"' + (t[0] === tab ? ' aria-current="page"' : '') + '>' + t[1] + '</a>').join('');
     return {
@@ -360,6 +406,8 @@
     const p = getPlace(args[0]);
     if (!p) return screens.notFound();
     const d = getDistrict(p.districtId);
+    // A stay with no price yet cannot be booked: a null price would give a total of 0.
+    const bookable = p.type === 'stay' && p.price > 0;
     return {
       title: p.name,
       html:
@@ -372,9 +420,9 @@
         '<main>' +
           '<p class="eyebrow-free">' + esc(d.name) + ' &ndash; ' + esc(p.tagline) + '</p>' +
           '<ul class="stats">' +
-            '<li><strong>' + p.rating.toFixed(1) + '</strong><span>Rating</span></li>' +
-            '<li><strong>' + p.match + '%</strong><span>Match</span></li>' +
-            '<li><strong>' + (p.price ? money(p.price) : 'Free') + '</strong><span>' + (p.price ? 'Per night' : 'Entry info soon') + '</span></li>' +
+            '<li><strong>' + (p.rating != null ? p.rating.toFixed(1) : '-') + '</strong><span>Rating</span></li>' +
+            '<li><strong>' + (p.match != null ? p.match + '%' : '-') + '</strong><span>Match</span></li>' +
+            '<li><strong>' + (p.price ? money(p.price) : (p.type === 'stay' ? '-' : 'Free')) + '</strong><span>' + (p.price ? 'Per night' : (p.type === 'stay' ? 'Price soon' : 'Entry info soon')) + '</span></li>' +
           '</ul>' +
           '<p class="tags">' + p.tags.map((t) => '<span class="tag tag--' + p.type + '">' + esc(t) + '</span>').join('') + '</p>' +
           (p.type === 'stay' ? '<a class="btn" href="#/book/' + p.id + '">Book now</a>' : '') +
@@ -385,7 +433,7 @@
 
   screens.book = (args) => {
     const p = getPlace(args[0]);
-    if (!p || p.type !== 'stay') return screens.notFound();
+    if (!p || p.type !== 'stay' || !(p.price > 0)) return screens.notFound();
     return {
       title: 'Book your stay',
       html:
@@ -406,7 +454,7 @@
         const guests = document.getElementById('guests'), sum = document.getElementById('sum'), err = document.getElementById('err');
         const today = new Date(), tomorrow = new Date(today.getTime() + 86400000), later = new Date(today.getTime() + 4 * 86400000);
         ci.min = isoDate(today);
-        const d = state.draft && state.draft.placeId === p.id ? state.draft : null;
+        const d = state.draft && String(state.draft.placeId) === String(p.id) ? state.draft : null;
         ci.value = d ? d.checkIn : isoDate(tomorrow);
         co.value = d ? d.checkOut : isoDate(later);
         if (d) guests.value = d.guests;
@@ -433,7 +481,7 @@
   screens.pay = (args) => {
     const p = getPlace(args[0]);
     const d = state.draft;
-    if (!p || !d || d.placeId !== p.id) { location.hash = '#/book/' + (p ? p.id : ''); return { title: 'Payment', html: '' }; }
+    if (!p || !d || String(d.placeId) !== String(p.id)) { location.hash = '#/book/' + (p ? p.id : ''); return { title: 'Payment', html: '' }; }
     return {
       title: 'Payment',
       html:
@@ -453,10 +501,14 @@
           '</form>' +
         '</main>',
       after: () => {
-        document.getElementById('payform').addEventListener('submit', (e) => {
+        const form = document.getElementById('payform');
+        const err = document.getElementById('err');
+        const btn = form.querySelector('button[type="submit"]');
+        const label = btn.textContent;
+        form.addEventListener('submit', async (e) => {
           e.preventDefault();
           if (document.getElementById('phone').value.replace(/\D/g, '').length < 8) {
-            document.getElementById('err').textContent = 'Enter your mobile money number.';
+            err.textContent = 'Enter your mobile money number.';
             return;
           }
           const booking = {
@@ -473,11 +525,10 @@
     };
   };
 
-  const findBooking = (id) => state.bookings.find((b) => b.id === id);
-
   screens.confirmed = (args) => {
-    const b = findBooking(args[0]);
-    if (!b) return screens.notFound();
+    const id = decodeURIComponent(args[0] || '');
+    const b = findBooking(id);
+    if (!b) { location.hash = '#/trips'; return { title: 'Booking received', html: '' }; }
     const p = getPlace(b.placeId);
     return {
       title: 'Booking received',
@@ -493,11 +544,25 @@
     };
   };
 
-  screens.receipt = (args) => {
-    const b = findBooking(args[0]);
-    if (!b) return screens.notFound();
+  // Receipt: loads the booking (from Neon for real travellers) and then draws it.
+  const receiptBody = (b) => {
     const p = getPlace(b.placeId);
     const row = (k, v) => '<div class="row"><dt>' + k + '</dt><dd>' + v + '</dd></div>';
+    return '<section class="receipt">' +
+        '<h2>' + esc(p ? p.name : 'Booking') + '</h2>' +
+        '<p class="small">Booking ID: ' + esc(displayId(b)) + '</p>' +
+        '<dl>' +
+          row('Check-in', prettyDate(b.checkIn)) + row('Check-out', prettyDate(b.checkOut)) +
+          row('Nights', b.nights) + row('Guests', b.guests) + row('Status', badge(b.status)) +
+          '<div class="row row--total"><dt>Total</dt><dd>' + money(b.total) + '</dd></div>' +
+        '</dl>' +
+        '<div class="chain chain--idle" data-booking="' + esc(b.id) + '" aria-live="polite">' + chainHtml('idle', null, b.chainTxHash) + '</div>' +
+      '</section>' +
+      '<button type="button" class="btn btn--ghost no-print" data-print>Download PDF</button>';
+  };
+
+  screens.receipt = (args) => {
+    const id = decodeURIComponent(args[0] || '');
     return {
       title: 'Receipt',
       html:
@@ -571,8 +636,61 @@
     };
   };
 
+  // Trips: real travellers see their bookings from Neon, everyone else sees local samples.
+  const tripCard = (b) => {
+    const p = getPlace(b.placeId);
+    return '<article class="card trip"><a class="card__link" href="#/receipt/' + encodeURIComponent(b.id) + '"><div class="card__body">' +
+      '<h3 class="card__name">' + esc(p ? p.name : 'Booking') + '</h3>' +
+      '<p class="card__sub">' + prettyDate(b.checkIn) + ' to ' + prettyDate(b.checkOut) + '</p>' +
+      '<p class="card__price">' + money(b.total) + ' &ndash; ' + esc(displayId(b)) + '</p>' +
+      '<p class="small">Status: ' + esc(b.status) + '</p></div></a></article>';
+  };
+  const tripsList = (list, real) => list.length
+    ? '<p class="small">' + (real ? 'Your bookings from your account.' : 'Sample trips are saved on this device only.') + '</p>' + list.map(tripCard).join('')
+    : empty('No trips yet', 'Book a stay and your receipt will appear here.', '#/home', 'Find a stay');
+
   screens.trips = () => ({
     title: 'Trips',
+    html: header('Your trips') + '<main id="trips"><p class="small" role="status">' + (isReal() ? 'Loading your bookings...' : '') + '</p>' + (isReal() ? '' : tripsList(state.bookings, false)) + '</main>' + navBar('trips'),
+    after: async () => {
+      if (!isReal()) return;
+      const box = document.getElementById('trips');
+      try {
+        const list = (await remoteList()).sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+        list.forEach(remember);
+        if (box.isConnected) box.innerHTML = tripsList(list, true);
+      } catch (e) {
+        if (box.isConnected) box.innerHTML = '<p class="error">Could not load your bookings: ' + esc(e.message || 'try again.') + '</p>';
+      }
+    }
+  });
+
+  screens.profile = () => {
+    const u = me();
+    const name = u ? (u.name || u.email || 'Traveller') : 'Guest';
+    const email = u ? (u.email || '') : 'Not signed in';
+    const initials = u ? name.split(' ').map((w) => w.charAt(0)).join('').slice(0, 2).toUpperCase() : 'G';
+    return {
+      title: 'Profile',
+      html:
+        '<header class="top top--tall top--center"><a class="top__back" href="#/home" aria-label="Back">' + ICON_BACK + '</a><div class="avatar" aria-hidden="true">' + esc(initials) + '</div><h1 class="top__title">' + esc(name) + '</h1><p>' + esc(email) + '</p></header>' +
+        '<main>' +
+          '<ul class="stats">' +
+            '<li><strong>' + state.saved.length + '</strong><span>Saved</span></li>' +
+            '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
+            '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
+          '</ul>' +
+          (u ? '<ul class="menu"><li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li></ul>' : '') +
+          (u ? '' : '<p class="small">You are browsing as a guest.</p>') +
+          (u && !isReal() ? '<p class="small">Demo account: sample data only.</p>' : '') +
+          (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
+          (u && isReal() ? '<a class="center" href="#/delete-account">Delete my account</a>' : '') +
+        '</main>' + navBar('profile')
+    };
+  };
+
+  screens['delete-account'] = () => ({
+    title: 'Delete account',
     html:
       header('Your trips') +
       '<main>' + (state.bookings.length ? '<p class="small">Trips are saved on this device only.</p>' + state.bookings.map((b) => {
@@ -757,7 +875,7 @@
 
   // ---------- router: read the hash, pick a screen, draw it ----------
   function route(keepScroll) {
-    const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);   // '#/district/maseru' -> ['district','maseru']
+    const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);   // '#/district/5' -> ['district','5']
     const make = screens[parts[0] || 'splash'] || screens.notFound;
     const screen = make(parts.slice(1));
     document.title = screen.title + ' - KaSetereke';
@@ -766,12 +884,12 @@
     if (!keepScroll) { window.scrollTo(0, 0); app.scrollTop = 0; }
   }
 
-  // One click listener handles every Save star and the print button.
+  // One click listener handles every Save star, the Verify button, log out and print.
   app.addEventListener('click', (e) => {
     const save = e.target.closest('[data-save]');
     if (save) {
       const id = save.dataset.save;
-      state.saved = isSaved(id) ? state.saved.filter((x) => x !== id) : state.saved.concat(id);
+      state.saved = isSaved(id) ? state.saved.filter((x) => String(x) !== String(id)) : state.saved.concat(id);
       writeStore();
       route(true);
       return;
