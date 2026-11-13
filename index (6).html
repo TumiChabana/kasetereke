@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>KaSetereke Administrator Console</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Playfair+Display:wght@600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; display: grid; grid-template-columns: 280px 1fr; min-height: 100vh; font-family: var(--font-body); color: var(--text); background: var(--background); }
+    aside { background: var(--tan-tint); border-right: 1px solid var(--border); padding: 24px 16px; display: flex; flex-direction: column; gap: 20px; }
+    h1 { font-family: var(--font-heading); font-size: 1.3rem; margin: 0; color: var(--ink); }
+    h2 { font-family: var(--font-heading); margin-top: 0; color: var(--ink); }
+    label { font-size: 0.85rem; color: var(--muted); display: block; margin: 12px 0 4px; }
+    select, input { font: inherit; padding: 7px 10px; border: 1px solid var(--border); background: #fff; }
+    input { width: 320px; max-width: 100%; }
+    nav { display: flex; flex-direction: column; gap: 4px; }
+    nav a { padding: 10px 12px; color: var(--ink); text-decoration: none; }
+    nav a.active { background: var(--ink); color: #fff; }
+    #who { display: flex; flex-direction: column; gap: 6px; }
+    .note { color: var(--muted); font-size: 0.85rem; }
+    .error { color: #A32020; font-weight: 600; }
+    main { padding: 32px; }
+    section { background: #fff; border: 1px solid var(--border); padding: 24px; overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    th { background: var(--tan-tint); }
+    button.action { background: var(--gold); color: var(--ink); border: none; padding: 7px 14px; font: inherit; font-weight: 600; cursor: pointer; margin-left: 8px; }
+    button.action:disabled { opacity: 0.5; cursor: default; }
+    .cards { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
+    .card { border-left: 6px solid var(--ink); background: var(--background); padding: 12px 18px; min-width: 150px; }
+    .card strong { display: block; font-size: 1.6rem; }
+    .status { background: var(--gold-tint); padding: 10px 12px; margin-bottom: 16px; }
+    .banner { background: var(--plum-tint); padding: 10px 12px; margin-bottom: 16px; }
+    button.action.on { background: var(--ink); color: #fff; }
+    .good { color: #0A6B2B; font-weight: 600; }
+    .warn { color: #8A5A00; font-weight: 600; }
+    .tabs { margin-bottom: 16px; }
+    .tabs button.action { margin-left: 0; margin-right: 8px; }
+    pre.record { white-space: pre-wrap; word-break: break-all; background: #fff; border: 1px solid var(--border); padding: 8px 10px; }
+    .confirm { background: var(--gold-tint); border: 2px solid var(--gold); padding: 14px 16px; margin-bottom: 16px; }
+  </style>
+</head>
+<body>
+  <aside>
+    <h1>KaSetereke Administrator Console</h1>
+    <div id="who"></div>
+    <nav id="nav"></nav>
+  </aside>
+  <main><section id="view"></section></main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <script src="js/chain.js"></script>
+  <script>
+    // 1. Settings. Both addresses are public. No key, password or token is ever saved in this file.
+    const AUTH_URL = "https://ep-raspy-frost-b5a46sw0.neonauth.c-7.us-east-2.aws.neon.tech/neondb/auth";
+    const API_URL = "https://ep-raspy-frost-b5a46sw0.apirest.c-7.us-east-2.aws.neon.tech/neondb/rest/v1";
+
+    const ROLE_LABELS = { traveller: "Traveller", operator: "Operator", admin: "Admin", security_officer: "Security Officer" };
+
+    // 2. Role gate: which roles may open each screen. This only shows or hides screens.
+    //    The real protection is the row-level security in the database.
+    const screens = {
+      users:          { title: "Users and roles",     access: { admin: "write", security_officer: "read" }, render: renderUsers },
+      audit:          { title: "Audit log",           access: { admin: "read", security_officer: "read" }, render: renderAudit },
+      operator:       { title: "Operator dashboard",  access: { operator: "read" }, render: renderOperator },
+      classification: { title: "Data classification", access: { admin: "read", security_officer: "read" }, render: renderClassification },
+      security:       { title: "Security settings",   access: { security_officer: "write", admin: "read" }, render: renderSecurity },
+      anchor:         { title: "Blockchain anchoring", access: { admin: "write" }, render: renderAnchor }
+    };
+
+    // 3. State. The token lives in memory only, so a refresh signs the person out.
+    let token = null;
+    let me = null;            // { id, role, name }
+    let signInError = "";
+    let signUpStep = "";      // "", "signup" or "code"
+    let pendingEmail = "";
+    let statusMessage = "";
+    let classFilter = "All";
+    let renderId = 0;
+    const changeLog = [];     // demonstration only, for the Security settings screen
+    let anchorKind = "booking";          // "booking" or "review"
+    let anchorRows = null;               // null means the list must be loaded again
+    let anchorNote = { text: "", kind: "" };   // kind is "", "good" or "error"
+    let anchorConfirm = null;            // { kind, row } while the admin is asked to confirm
+    let anchorBusy = false;
+    const anchorVerify = {};             // record id -> "verified", "pending" or "mismatch"
+
+    // 4. Helpers. textContent is used everywhere, so data can never run as code.
+    function el(tag, text, className) {
+      const node = document.createElement(tag);
+      if (text !== undefined) node.textContent = text;
+      if (className) node.className = className;
+      return node;
+    }
+    function makeTable(columns, rows) {
+      const table = el("table");
+      const head = el("tr");
+      columns.forEach(c => head.appendChild(el("th", c)));
+      table.appendChild(head);
+      rows.forEach(cells => {
+        const tr = el("tr");
+        cells.forEach(cell => {
+          const td = el("td");
+          if (cell instanceof Node) td.appendChild(cell); else td.textContent = cell;
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+      return table;
+    }
+    function formatTime(value) { return value ? String(value).slice(0, 16).replace("T", " ") : ""; }
+    function formatValue(value) { return value === null || value === undefined ? "" : (typeof value === "object" ? JSON.stringify(value) : String(value)); }
+
+    // 5. Every Data API call sends the token. The error carries the exact status and text, never the token.
+    async function api(path, options) {
+      const opts = options || {};
+      const headers = Object.assign({ Authorization: "Bearer " + token, "Content-Type": "application/json" }, opts.headers || {});
+      const res = await fetch(API_URL + path, { method: opts.method || "GET", headers: headers, body: opts.body });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        const err = new Error("HTTP " + res.status + ": " + text.slice(0, 200));
+        err.status = res.status;
+        throw err;
+      }
+      return res.status === 204 ? null : res.json();
+    }
+    function signOut(message) { token = null; me = null; signInError = message || ""; signUpStep = ""; anchorRows = null; anchorConfirm = null; anchorBusy = false; anchorNote = { text: "", kind: "" }; render(); }
+    function handleError(view, e) {
+      if (e.status === 401) { signOut("Your session expired. Please sign in again."); return; }
+      view.appendChild(el("p", "Could not load the data. " + e.message, "error"));
+    }
+
+    // 6. The login flow: sign in, get the session, read the token, find the profile, check the role.
+    async function signIn(email, password) {
+      let res;
+      try {
+        res = await fetch(AUTH_URL + "/sign-in/email", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ email: email, password: password }) });
+      } catch (e) { return "The browser blocked the sign-in request. This site address may not be a trusted origin yet."; }
+      if (!res.ok) return "Sign-in failed. Status " + res.status + ".";
+
+      let sres;
+      try { sres = await fetch(AUTH_URL + "/get-session", { credentials: "include" }); }
+      catch (e) { return "The browser blocked the session request."; }
+      if (!sres.ok) return "Could not read the session. Status " + sres.status + ". The browser may have refused the sign-in cookie.";
+      const jwt = sres.headers.get("set-auth-jwt");
+      if (!jwt) return "Signed in, but this page cannot read the token header (Set-Auth-Jwt). Tell the database owner.";
+      const session = await sres.json().catch(() => null);
+      const loginId = session && session.user && session.user.id;
+      if (!loginId) return "Signed in, but the session has no login id.";
+      token = jwt;
+
+      let rows;
+      try { rows = await api("/profiles?auth_user_id=eq." + encodeURIComponent(loginId) + "&select=id,role,display_name"); }
+      catch (e) { token = null; return "Could not read your profile. " + e.message; }
+      if (!rows || rows.length === 0) {
+        // First sign-in: create the profile. The database gives it the Traveller role.
+        const name = (session.user.name || email.split("@")[0]);
+        try { await api("/profiles", { method: "POST", body: JSON.stringify({ auth_user_id: loginId, display_name: name }) }); }
+        catch (e) { token = null; return "Could not create your profile. " + e.message; }
+        token = null;
+        return "Your account is ready. Ask the lead to give you a staff role, then sign in again.";
+      }
+      const p = rows[0];
+      const allowed = Object.keys(screens).filter(n => screens[n].access[p.role]);
+      if (allowed.length === 0) { token = null; return "Access denied. This console is for staff only."; }
+      me = { id: p.id, role: p.role, name: p.display_name };
+      return "";
+    }
+    async function signUp(name, email, password) {
+      try {
+        const res = await fetch(AUTH_URL + "/sign-up/email", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ email: email, password: password, name: name }) });
+        if (!res.ok) return "Sign-up failed. Status " + res.status + ".";
+      } catch (e) { return "The browser blocked the sign-up request. This site address may not be a trusted origin yet."; }
+      return "";
+    }
+    async function verifyCode(email, otp) {
+      try {
+        const res = await fetch(AUTH_URL + "/email-otp/verify-email", { method: "POST", headers: { "Content-Type": "application/json" }, credentials: "include", body: JSON.stringify({ email: email, otp: otp }) });
+        if (!res.ok) return "The code was not accepted. Status " + res.status + ".";
+      } catch (e) { return "The browser blocked the request."; }
+      return "";
+    }
+
+    // 7. The sign-in screen.
+    function field(form, id, labelText, type) {
+      const label = el("label", labelText); label.setAttribute("for", id);
+      const input = el("input"); input.id = id; input.type = type; input.autocomplete = "off";
+      form.appendChild(label); form.appendChild(input);
+      return input;
+    }
+    function renderSignIn(view) {
+      view.appendChild(el("h2", signUpStep === "signup" ? "Create an account" : (signUpStep === "code" ? "Enter the code" : "Sign in")));
+      if (signInError) view.appendChild(el("p", signInError, "error"));
+      const form = el("form");
+      let nameInput = null, emailInput = null, passwordInput = null, codeInput = null;
+      if (signUpStep === "code") {
+        codeInput = field(form, "code", "Code from your email", "text");
+      } else {
+        if (signUpStep === "signup") nameInput = field(form, "name", "Your name", "text");
+        emailInput = field(form, "email", "Email address", "text");
+        passwordInput = field(form, "password", "Password", "password");
+      }
+      const button = el("button", signUpStep === "signup" ? "Create account" : (signUpStep === "code" ? "Verify" : "Sign in"), "action");
+      button.type = "submit"; button.style.marginLeft = "0"; button.style.marginTop = "16px";
+      form.appendChild(el("br")); form.appendChild(button);
+      form.addEventListener("submit", async ev => {
+        ev.preventDefault();
+        button.disabled = true;
+        if (signUpStep === "code") {
+          const problem = await verifyCode(pendingEmail, codeInput.value.trim());
+          signInError = problem || "Your email is verified. Sign in now.";
+          if (!problem) signUpStep = "";
+        } else if (signUpStep === "signup") {
+          const email = emailInput.value.trim();
+          const problem = await signUp(nameInput.value.trim(), email, passwordInput.value);
+          passwordInput.value = "";
+          if (problem) { signInError = problem; } else { pendingEmail = email; signUpStep = "code"; signInError = "Account created. If a code was emailed to you, enter it here. If not, go back and sign in."; }
+        } else {
+          const problem = await signIn(emailInput.value.trim(), passwordInput.value);
+          passwordInput.value = "";
+          signInError = problem;
+        }
+        render();
+      });
+      view.appendChild(form);
+      const switchLink = el("p", undefined, "note");
+      const a = el("a", signUpStep === "" ? "Create an account" : "Back to sign in");
+      a.href = "#"; a.addEventListener("click", ev => { ev.preventDefault(); signUpStep = signUpStep === "" ? "signup" : ""; signInError = ""; render(); });
+      switchLink.appendChild(a);
+      view.appendChild(switchLink);
+      view.appendChild(el("p", "Passwords are sent only to the sign-in service. This page never saves them.", "note"));
+    }
+
+    // 8. Screens.
+    async function renderUsers(view, level, name, isCurrent) {
+      view.appendChild(el("h2", "Users and roles"));
+      if (statusMessage) { view.appendChild(el("div", statusMessage, "status")); statusMessage = ""; }
+      const loading = el("p", "Loading...", "note"); view.appendChild(loading);
+      let rows;
+      try { rows = await api("/profiles?select=id,display_name,email,role,created_at&order=created_at.asc"); }
+      catch (e) { if (isCurrent()) { loading.remove(); handleError(view, e); } return; }
+      if (!isCurrent()) return;
+      loading.remove();
+      const tableRows = rows.map(p => {
+        const isMe = p.id === me.id;
+        let roleCell;
+        if (level === "write" && !isMe) {
+          // Only an Admin can change the role of another person.
+          const select = el("select");
+          Object.keys(ROLE_LABELS).forEach(key => { const o = el("option", ROLE_LABELS[key]); o.value = key; if (key === p.role) o.selected = true; select.appendChild(o); });
+          const save = el("button", "Save role", "action");
+          save.addEventListener("click", async () => {
+            if (select.value === p.role) { statusMessage = "No change: " + p.display_name + " is already " + ROLE_LABELS[p.role] + "."; render(); return; }
+            save.disabled = true;
+            try {
+              const out = await api("/profiles?id=eq." + encodeURIComponent(p.id), { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ role: select.value }) });
+              statusMessage = out && out.length ? "The role of " + p.display_name + " is now " + ROLE_LABELS[select.value] + "." : "Nothing was changed. The database refused the change.";
+            } catch (e) {
+              if (e.status === 401) { signOut("Your session expired. Please sign in again."); return; }
+              statusMessage = "The change failed. " + e.message;
+            }
+            render();
+          });
+          roleCell = el("span"); roleCell.appendChild(select); roleCell.appendChild(save);
+        } else {
+          roleCell = (ROLE_LABELS[p.role] || p.role) + (isMe ? " (you)" : "");
+        }
+        return [p.display_name, p.email || "", roleCell, formatTime(p.created_at)];
+      });
+      view.appendChild(makeTable(["Name", "Email address", "Role", "Created"], tableRows));
+      view.appendChild(el("p", level === "write" ? "You cannot change your own role. The database also enforces that only an Admin can change a role." : "This role can read the list but cannot change roles.", "note"));
+    }
+
+    async function renderAudit(view, level, name, isCurrent) {
+      view.appendChild(el("h2", "Audit log"));
+      const loading = el("p", "Loading...", "note"); view.appendChild(loading);
+      let log, people;
+      try {
+        log = await api("/audit_log?select=*&order=at.desc&limit=100");
+        people = await api("/profiles?select=id,display_name");
+      } catch (e) { if (isCurrent()) { loading.remove(); handleError(view, e); } return; }
+      if (!isCurrent()) return;
+      loading.remove();
+      const names = {}; people.forEach(p => { names[p.id] = p.display_name; });
+      const rows = log.map(e => [formatTime(e.at), names[e.actor_profile_id] || formatValue(e.actor_profile_id), formatValue(e.action), formatValue(e.target_table), formatValue(e.target_id), formatValue(e.old_value), formatValue(e.new_value)]);
+      view.appendChild(rows.length ? makeTable(["When", "Who", "Action", "Table", "Record", "Old value", "New value"], rows) : el("p", "No entries yet.", "note"));
+      view.appendChild(el("p", "Read only. Nobody can write to this log through the Data API. The newest 100 entries are shown.", "note"));
+    }
+
+    async function renderOperator(view, level, name, isCurrent) {
+      view.appendChild(el("h2", "Operator dashboard"));
+      const loading = el("p", "Loading...", "note"); view.appendChild(loading);
+      let places, bookings;
+      try {
+        places = await api("/places?operator_id=eq." + encodeURIComponent(me.id) + "&select=id,name,type,price_band,price_per_night&order=id.asc");
+        bookings = await api("/bookings?select=id,place_id,check_in,check_out,guests,status,created_at&order=created_at.desc");
+      } catch (e) { if (isCurrent()) { loading.remove(); handleError(view, e); } return; }
+      if (!isCurrent()) return;
+      loading.remove();
+      const ids = places.map(p => p.id);
+      const mine = bookings.filter(b => ids.includes(b.place_id));   // the database already filters; this is a second check
+      const placeName = {}; places.forEach(p => { placeName[p.id] = p.name; });
+      const cards = el("div", undefined, "cards");
+      [["My listings", places.length], ["Bookings for my listings", mine.length], ["Pending bookings", mine.filter(b => b.status === "pending").length]].forEach(([label, count]) => {
+        const card = el("div", undefined, "card"); card.appendChild(el("strong", String(count))); card.appendChild(el("span", label)); cards.appendChild(card);
+      });
+      view.appendChild(cards);
+      view.appendChild(el("h3", "My listings"));
+      view.appendChild(places.length ? makeTable(["Name", "Type", "Price band", "Price per night"], places.map(p => [p.name, formatValue(p.type), formatValue(p.price_band), formatValue(p.price_per_night)])) : el("p", "No listings are linked to your profile yet.", "note"));
+      view.appendChild(el("h3", "Bookings for my listings"));
+      view.appendChild(mine.length ? makeTable(["Listing", "Check in", "Check out", "Guests", "Status"], mine.map(b => [placeName[b.place_id] || "", b.check_in, b.check_out, String(b.guests), b.status])) : el("p", "No bookings yet.", "note"));
+      view.appendChild(el("p", "Read only. Bookings are Confidential data, so this view shows no traveller names and no payment references.", "note"));
+    }
+
+    // Blockchain anchoring (admin only). Only hashes go on the public test network, never personal data.
+    // The recipes for the text are in js/chain.js and must match docs/chain-spec.md.
+    const VERIFY_LABELS = { verified: "Verified: the record matches the blockchain", pending: "Not on the blockchain yet", mismatch: "Record was changed after it was anchored" };
+    function anchorTable(kind) { return kind === "booking" ? "bookings" : "reviews"; }
+    function anchorHashOf(kind, row) { return kind === "booking" ? row.record_hash : row.comment_hash; }
+    function setAnchorNote(text, noteKind) { anchorNote = { text: text, kind: noteKind || "" }; }
+
+    async function anchorSaveToDatabase(kind, row, result) {
+      const fields = kind === "booking" ? { record_hash: result.hash, chain_tx_hash: result.txHash } : { comment_hash: result.hash, chain_tx_hash: result.txHash };
+      const out = await api("/" + anchorTable(kind) + "?id=eq." + encodeURIComponent(row.id), { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify(fields) });
+      if (!out || out.length === 0) throw new Error("Nothing was updated. The database refused the change, or the row is gone.");
+    }
+
+    async function doAnchor(kind, row) {
+      anchorBusy = true;
+      setAnchorNote("Starting...", "");
+      render();
+      let result;
+      try {
+        result = await KaChain.anchor(kind, row, function (message) { setAnchorNote(message, ""); render(); });
+      } catch (e) {
+        anchorBusy = false; anchorConfirm = null;
+        setAnchorNote("Error: " + (e && e.message ? e.message : String(e)), "error");
+        render(); return;
+      }
+      try {
+        await anchorSaveToDatabase(kind, row, result);
+      } catch (e) {
+        anchorBusy = false; anchorConfirm = null;
+        if (e.status === 401) { signOut("Your session expired. The record is on the blockchain with transaction " + result.txHash + ". Do NOT anchor it again. Save this transaction hash."); return; }
+        setAnchorNote("Written on the blockchain (transaction " + result.txHash + ") but saving to the database failed: " + e.message + ". Do NOT anchor again. Save this transaction hash and update the row by SQL.", "error");
+        render(); return;
+      }
+      anchorBusy = false; anchorConfirm = null; anchorRows = null;
+      setAnchorNote("Anchored. Transaction: " + result.txHash, "good");
+      render();
+    }
+
+    async function renderAnchor(view, level, name, isCurrent) {
+      view.appendChild(el("h2", "Blockchain anchoring"));
+      view.appendChild(el("div", "Only a fingerprint (hash) of a record is written to the public Sepolia test network, never personal data. Only the owner wallet can write, through MetaMask. Verifying costs nothing and needs no wallet. Bookings must be confirmed before they are anchored, because the status is part of the hash. If the status of an anchored booking changes later, Verify will show that the record was changed.", "banner"));
+      if (!window.ethers || !window.KaChain) {
+        view.appendChild(el("p", "The blockchain tools did not load, so this screen cannot work. Check the internet connection and reload the page.", "error"));
+        return;
+      }
+
+      const tabs = el("div", undefined, "tabs");
+      [["booking", "Bookings"], ["review", "Reviews"]].forEach(pair => {
+        const tab = el("button", pair[1], "action" + (anchorKind === pair[0] ? " on" : ""));
+        tab.type = "button"; tab.disabled = anchorBusy;
+        tab.addEventListener("click", () => { anchorKind = pair[0]; anchorRows = null; anchorConfirm = null; setAnchorNote("", ""); render(); });
+        tabs.appendChild(tab);
+      });
+      const refresh = el("button", "Reload list", "action");
+      refresh.type = "button"; refresh.disabled = anchorBusy;
+      refresh.addEventListener("click", () => { anchorRows = null; render(); });
+      tabs.appendChild(refresh);
+      view.appendChild(tabs);
+
+      if (anchorNote.text) {
+        const note = el("div", undefined, "status");
+        const line = el("span", anchorNote.text, anchorNote.kind === "error" ? "error" : (anchorNote.kind === "good" ? "good" : ""));
+        note.appendChild(line);
+        const match = /0x[0-9a-fA-F]{64}/.exec(anchorNote.text);
+        if (anchorNote.kind === "good" && match) {
+          note.appendChild(document.createTextNode(" "));
+          const link = el("a", "View on Etherscan"); link.href = KaChain.etherscanTx(match[0]); link.target = "_blank"; link.rel = "noopener noreferrer";
+          note.appendChild(link);
+        }
+        view.appendChild(note);
+      }
+
+      if (anchorConfirm) {
+        const box = el("div", undefined, "confirm");
+        box.appendChild(el("h3", "Confirm before anchoring"));
+        box.appendChild(el("p", "You are about to write a fingerprint of this " + anchorConfirm.kind + " to the public blockchain. This cannot be undone and cannot be erased. MetaMask will then ask you to approve the transaction with the owner wallet."));
+        box.appendChild(el("p", "The fingerprint is made from this text:", "note"));
+        const text = anchorConfirm.kind === "booking" ? KaChain.bookingText(anchorConfirm.row) : KaChain.reviewText(anchorConfirm.row);
+        box.appendChild(el("pre", text, "record"));
+        if (anchorConfirm.kind === "booking") box.appendChild(el("p", "The status " + anchorConfirm.row.status + " is part of the fingerprint. Do not change the status after anchoring.", "warn"));
+        const yes = el("button", "Record on blockchain", "action"); yes.type = "button"; yes.style.marginLeft = "0"; yes.disabled = anchorBusy;
+        yes.addEventListener("click", () => { doAnchor(anchorConfirm.kind, anchorConfirm.row); });
+        const no = el("button", "Cancel", "action"); no.type = "button"; no.disabled = anchorBusy;
+        no.addEventListener("click", () => { anchorConfirm = null; setAnchorNote("", ""); render(); });
+        box.appendChild(yes); box.appendChild(no);
+        view.appendChild(box);
+      }
+
+      if (anchorRows === null) {
+        const loading = el("p", "Loading...", "note"); view.appendChild(loading);
+        try { anchorRows = await api("/" + anchorTable(anchorKind) + "?select=*&order=created_at.desc"); }
+        catch (e) { if (isCurrent()) { loading.remove(); handleError(view, e); } return; }
+        if (!isCurrent()) return;
+        loading.remove();
+      }
+
+      const kind = anchorKind;
+      const isBooking = kind === "booking";
+      const columns = isBooking ? ["Record", "Place", "Details", "Status", "Chain", "Actions"] : ["Record", "Place", "Details", "Chain", "Actions"];
+      const tableRows = anchorRows.map(row => {
+        const hash = anchorHashOf(kind, row);
+        const details = isBooking ? formatValue(row.check_in) + " to " + formatValue(row.check_out) + ", " + formatValue(row.guests) + " guest(s), total " + formatValue(row.total_amount) : "Rating " + formatValue(row.rating) + " by " + formatValue(row.reviewer_pseudonym);
+
+        const chainCell = el("span");
+        if (hash) {
+          chainCell.appendChild(el("span", String(hash).slice(0, 10) + "..."));
+          if (/^0x[0-9a-fA-F]{64}$/.test(row.chain_tx_hash || "")) {
+            chainCell.appendChild(document.createTextNode(" "));
+            const link = el("a", "Etherscan"); link.href = KaChain.etherscanTx(row.chain_tx_hash); link.target = "_blank"; link.rel = "noopener noreferrer";
+            chainCell.appendChild(link);
+          }
+        } else {
+          chainCell.appendChild(el("span", "Not anchored", "note"));
+        }
+        if (anchorVerify[row.id]) {
+          chainCell.appendChild(el("br"));
+          chainCell.appendChild(el("span", VERIFY_LABELS[anchorVerify[row.id]], anchorVerify[row.id] === "verified" ? "good" : (anchorVerify[row.id] === "mismatch" ? "error" : "warn")));
+        }
+
+        const actions = el("span");
+        if (isBooking && row.status === "pending") {
+          const confirmButton = el("button", "Confirm booking", "action"); confirmButton.type = "button"; confirmButton.style.marginLeft = "0"; confirmButton.disabled = anchorBusy;
+          confirmButton.addEventListener("click", async () => {
+            confirmButton.disabled = true;
+            try {
+              const out = await api("/bookings?id=eq." + encodeURIComponent(row.id), { method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ status: "confirmed" }) });
+              setAnchorNote(out && out.length ? "The booking is now confirmed. You can anchor it." : "Nothing was changed. The database refused the change.", out && out.length ? "good" : "error");
+              anchorRows = null;
+            } catch (e) {
+              if (e.status === 401) { signOut("Your session expired. Please sign in again."); return; }
+              setAnchorNote("The change failed. " + e.message, "error");
+            }
+            render();
+          });
+          actions.appendChild(confirmButton);
+        }
+        if (!hash) {
+          const anchorButton = el("button", "Anchor", "action"); anchorButton.type = "button"; anchorButton.disabled = anchorBusy;
+          anchorButton.addEventListener("click", () => {
+            if (isBooking && row.status !== "confirmed" && row.status !== "completed") { setAnchorNote("Confirm the booking first. The status is part of the hash.", "error"); render(); return; }
+            anchorConfirm = { kind: kind, row: row }; setAnchorNote("", ""); render();
+          });
+          actions.appendChild(anchorButton);
+        }
+        const verifyButton = el("button", "Verify", "action"); verifyButton.type = "button"; verifyButton.disabled = anchorBusy;
+        verifyButton.addEventListener("click", async () => {
+          verifyButton.disabled = true;
+          try { anchorVerify[row.id] = await KaChain.verify(kind, row); setAnchorNote("", ""); }
+          catch (e) { setAnchorNote("Verify failed: " + (e && e.message ? e.message : String(e)), "error"); }
+          render();
+        });
+        actions.appendChild(verifyButton);
+
+        const cells = [String(row.id).slice(0, 8) + "...", formatValue(row.place_id), details];
+        if (isBooking) cells.push(formatValue(row.status));
+        cells.push(chainCell); cells.push(actions);
+        return cells;
+      });
+      view.appendChild(tableRows.length ? makeTable(columns, tableRows) : el("p", "No rows.", "note"));
+      view.appendChild(el("p", "Only the Admin can use this screen. The Security Officer cannot read bookings under the current rules. The database decides what is allowed; this screen only shows or hides buttons.", "note"));
+    }
+
+    // The class of every database column (41). Source: docs/schema-classification.md. Update both together.
+    const CLASS_NAMES = ["Public", "Private", "Confidential", "Restricted"];
+    const SCHEMA_CLASSES = [
+      ["districts", "id", "Public"],
+      ["districts", "name", "Public"],
+      ["places", "id", "Public"],
+      ["places", "name", "Public"],
+      ["places", "district_id", "Public"],
+      ["places", "type", "Public"],
+      ["places", "price_band", "Public"],
+      ["places", "family_friendly", "Public"],
+      ["places", "needs_4x4", "Public"],
+      ["places", "source", "Public"],
+      ["places", "price_per_night", "Public"],
+      ["places", "description", "Public"],
+      ["places", "image_file", "Public"],
+      ["places", "operator_id", "Private"],
+      ["profiles", "id", "Private"],
+      ["profiles", "auth_user_id", "Restricted"],
+      ["profiles", "display_name", "Private"],
+      ["profiles", "email", "Private"],
+      ["profiles", "role", "Restricted"],
+      ["profiles", "created_at", "Private"],
+      ["bookings", "id", "Confidential"],
+      ["bookings", "profile_id", "Confidential"],
+      ["bookings", "place_id", "Confidential"],
+      ["bookings", "check_in", "Confidential"],
+      ["bookings", "check_out", "Confidential"],
+      ["bookings", "guests", "Confidential"],
+      ["bookings", "total_amount", "Confidential"],
+      ["bookings", "status", "Confidential"],
+      ["bookings", "payment_ref", "Confidential"],
+      ["bookings", "record_hash", "Confidential"],
+      ["bookings", "chain_tx_hash", "Confidential"],
+      ["bookings", "created_at", "Confidential"],
+      ["reviews", "id", "Public"],
+      ["reviews", "profile_id", "Private"],
+      ["reviews", "place_id", "Public"],
+      ["reviews", "reviewer_pseudonym", "Public"],
+      ["reviews", "rating", "Public"],
+      ["reviews", "comment", "Public"],
+      ["reviews", "comment_hash", "Public"],
+      ["reviews", "chain_tx_hash", "Confidential"],
+      ["reviews", "created_at", "Public"]
+    ];
+    function renderClassification(view) {
+      view.appendChild(el("h2", "Data classification"));
+      const cards = el("div", undefined, "cards");
+      CLASS_NAMES.forEach(n => {
+        const card = el("div", undefined, "card");
+        card.appendChild(el("strong", String(SCHEMA_CLASSES.filter(r => r[2] === n).length)));
+        card.appendChild(el("span", n)); cards.appendChild(card);
+      });
+      view.appendChild(cards);
+      const label = el("label", "Show"); label.setAttribute("for", "classFilter");
+      const filter = el("select"); filter.id = "classFilter";
+      ["All"].concat(CLASS_NAMES).forEach(n => { const o = el("option", n); o.value = n; if (n === classFilter) o.selected = true; filter.appendChild(o); });
+      filter.addEventListener("change", () => { classFilter = filter.value; render(); });
+      view.appendChild(label); view.appendChild(filter);
+      const shown = SCHEMA_CLASSES.filter(r => classFilter === "All" || r[2] === classFilter);
+      view.appendChild(el("p", "Showing " + shown.length + " of " + SCHEMA_CLASSES.length + " columns.", "note"));
+      view.appendChild(makeTable(["Table", "Column", "Class"], shown));
+      view.appendChild(el("p", "Read only. This list is fixed content, not read from the database.", "note"));
+    }
+
+    const SETTINGS = [["Roles and permissions", "Restricted"], ["Data classification of each column", "Restricted"], ["Compliance levels", "Restricted"], ["Record of changes made to the settings", "Restricted"]];
+    function renderSecurity(view, level) {
+      view.appendChild(el("h2", "Security settings"));
+      view.appendChild(el("div", "Demonstration data. Changes on this screen are kept in this page only and are not saved to the database.", "banner"));
+      view.appendChild(makeTable(["Item managed", "Data class"], SETTINGS));
+      view.appendChild(el("h3", "Record of changes"));
+      view.appendChild(changeLog.length ? makeTable(["When", "Who", "Change"], changeLog.map(e => [e.when, e.who, e.text])) : el("p", "No changes have been recorded yet.", "note"));
+      if (level === "write") {
+        const label = el("label", "Describe the change"); label.setAttribute("for", "changeText");
+        const input = el("input"); input.type = "text"; input.id = "changeText";
+        const save = el("button", "Record change", "action");
+        save.addEventListener("click", () => {
+          const text = input.value.trim();
+          if (text === "") return;
+          changeLog.push({ when: new Date().toISOString().slice(0, 16).replace("T", " "), who: me.name, text: text });
+          render();
+        });
+        view.appendChild(label); view.appendChild(input); view.appendChild(save);
+      } else {
+        view.appendChild(el("p", "This role may read the settings but cannot change them. Only the Security Officer can.", "note"));
+      }
+    }
+
+    // 9. Routes and layout. Only the screens that the role may open are shown.
+    function render() {
+      const id = ++renderId;
+      const nav = document.getElementById("nav"); nav.replaceChildren();
+      const view = document.getElementById("view"); view.replaceChildren();
+      const who = document.getElementById("who"); who.replaceChildren();
+      if (!me) { renderSignIn(view); return; }
+      who.appendChild(el("strong", me.name));
+      who.appendChild(el("span", ROLE_LABELS[me.role] || me.role, "note"));
+      const out = el("button", "Sign out", "action"); out.style.marginLeft = "0"; out.style.alignSelf = "flex-start";
+      out.addEventListener("click", () => signOut("")); who.appendChild(out);
+      const allowed = Object.keys(screens).filter(n => screens[n].access[me.role]);
+      const hashName = location.hash.replace("#/", "");
+      const name = allowed.includes(hashName) ? hashName : allowed[0];
+      allowed.forEach(n => { const link = el("a", screens[n].title); link.href = "#/" + n; if (n === name) link.className = "active"; nav.appendChild(link); });
+      screens[name].render(view, screens[name].access[me.role], name, () => id === renderId);
+    }
+    window.addEventListener("hashchange", render);
+    render();
+  </script>
+</body>
+</html>
