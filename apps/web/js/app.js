@@ -23,7 +23,7 @@
   function writeStore() {
     try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) { /* ignore */ }
   }
-  const state = Object.assign({ saved: [], bookings: [], reviews: [], draft: null }, readStore());
+  const state = Object.assign({ saved: [], bookings: [], reviews: [], draft: null, prefs: null }, readStore());
 
   // ---------- small helpers ----------
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
@@ -200,6 +200,58 @@
     return { match: match, explain: explain, recommend: recommend, similar: similar };
   })();
 
+  // ---------- AI: Match % = travel-style model (team's ML, js/match.js) + your activity (Rec above) ----------
+  // 1. "Travel style": three answers (budget, children, 4x4). js/match.js scores every place with cosine similarity,
+  //    the same maths as ml/02_recommender.py (checked by ml/06_match_parity_test.py).
+  // 2. "Your activity": the on-device recommender above, learned from saves, bookings and reviews.
+  // 3. Match % = 60% travel-style + 40% activity. With only one of them, that one is used. With neither, no % is shown.
+  const Style = {
+    score: (p) => (state.prefs && window.KaMatch ? window.KaMatch.score(state.prefs, p) : null),
+    reasons: (p) => {
+      const s = state.prefs, out = [];
+      if (!s) return out;
+      if (s.withChildren && p.family_friendly === true) out.push('Family friendly, and you travel with children.');
+      if (!s.accepts4x4 && p.needs_4x4 === true) out.push('Needs a 4x4, which you would rather avoid.');
+      const band = String(s.budget || '').toLowerCase();
+      if (band && p.price_band === band) out.push('Its price band (' + band + ') fits your budget.');
+      return out;
+    }
+  };
+
+  const Match = (function () {
+    function pct(p) {
+      const a = Style.score(p), b = Rec.match(p);
+      if (a != null && b != null) return Math.round(0.6 * a + 0.4 * b);
+      return a != null ? a : b;
+    }
+    // Places the traveller already saved or booked: no need to recommend them again.
+    function owned() {
+      const have = {};
+      state.saved.forEach((id) => { have[String(id)] = true; });
+      state.bookings.forEach((b) => { have[String(b.placeId)] = true; });
+      Object.keys(cache).forEach((k) => { if (cache[k] && cache[k].remote) have[String(cache[k].placeId)] = true; });
+      return have;
+    }
+    // Returns [[placeId, badge], ...], or [] while we know nothing about the traveller.
+    function recommend(n) {
+      const have = owned();
+      return KS.places.filter((p) => !have[String(p.id)])
+        .map((p) => ({ p: p, m: pct(p) })).filter((x) => x.m != null)
+        .sort((a, b) => (b.m - a.m) || ((b.p.rating || 0) - (a.p.rating || 0)))
+        .slice(0, n).map((x) => [x.p.id, x.m + '% match']);
+    }
+    function explain(p) {
+      const m = pct(p);
+      if (m == null) return null;
+      const rec = Rec.explain(p);
+      const reasons = Style.reasons(p);
+      if (rec) rec.reasons.forEach((r) => { if (reasons.length === 0 || r.indexOf('A loose match') !== 0) reasons.push(r); });
+      if (!reasons.length) reasons.push('Based on your answers and activity.');
+      return { pct: m, style: Style.score(p), activity: Rec.match(p), reasons: reasons };
+    }
+    return { pct: pct, recommend: recommend, explain: explain };
+  })();
+
   // ---------- shared pieces (header, bottom nav, list card) ----------
   const ICON_BACK = '<svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 
@@ -238,7 +290,7 @@
     (p.image ? '<img src="' + esc(p.image) + '" alt="Photo of ' + esc(p.name) + '" loading="lazy" onerror="this.remove()">' : '') + '</div>';
 
   const cardMeta = (p) => {
-    const m = Rec.match(p);
+    const m = Match.pct(p);
     if (m == null && p.rating == null) return '';
     return '<p class="card__meta">' + (m != null ? '<span class="match">' + m + '% match</span>' : '') + (p.rating != null ? '<span>&#9733; ' + p.rating.toFixed(1) + '</span>' : '') + '</p>';
   };
@@ -466,7 +518,8 @@
     const seen = {};
     state.saved.concat(state.bookings.map((b) => b.placeId)).forEach((id) => { const p = getPlace(id); if (p) seen[p.districtId] = true; });
     const explored = Object.keys(seen).length;
-    const recs = Rec.recommend(4);   // empty until the traveller has saved, booked or reviewed something
+    const recs = Match.recommend(4);   // empty until the traveller answers the style questions or saves something
+    const stylePrompt = state.prefs ? '' : '<p class="small center"><a href="#/style">Answer 3 quick questions to see your match %</a></p>';
     const cats = [['Stays', '#/districts'], ['Heritage', '#/districts'], ['Nature', '#/coming-soon'], ['Camping', '#/coming-soon'], ['Events', '#/coming-soon']];
     return {
       title: 'Home',
@@ -487,6 +540,7 @@
           '<ul class="cats">' + cats.map((c) =>
             '<li><a href="' + c[1] + '"><span class="cats__img"><span aria-hidden="true">' + c[0].charAt(0) + '</span>' +
             '<img src="img/cat-' + c[0].toLowerCase() + '.jpg" alt="" onerror="this.remove()"></span>' + c[0] + '</a></li>').join('') + '</ul>' +
+          stylePrompt +
           shelf(recs.length ? 'Picked for you' : 'Top picks for you', recs.length ? recs : [[25, 'Family pick'], [18, 'Great view']]) +
           shelf('Trending right now', [[5, '#1 spot'], [22, 'Bucket list']]) +
         '</main>' + navBar('explore')
@@ -530,10 +584,14 @@
     const d = getDistrict(p.districtId);
     // A stay with no price yet cannot be booked: a null price would give a total of 0.
     const bookable = p.type === 'stay' && p.price > 0;
-    const m = Rec.match(p), why = Rec.explain(p), sim = Rec.similar(p, 3);
-    const whyHtml = why
-      ? '<section class="why" style="border-left:4px solid var(--gold,#c9a45c);padding:4px 12px;margin:12px 0"><h2 style="font-size:1rem;margin:0 0 4px">Why this is a ' + why.pct + '% match</h2><ul>' + why.reasons.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></section>'
-      : '<p class="small">Save or book a place and we will show how well this one fits you.</p>';
+    const m = Match.pct(p), why = Match.explain(p), sim = Rec.similar(p, 3);
+    const whyHtml =
+      (why
+        ? '<section class="why" style="border-left:4px solid var(--gold,#c9a45c);padding:4px 12px;margin:12px 0"><h2 style="font-size:1rem;margin:0 0 4px">Why this is a ' + why.pct + '% match</h2>' +
+          (why.style != null && why.activity != null ? '<p class="small">Travel-style model: ' + why.style + '% &middot; Your activity: ' + why.activity + '%</p>' : '') +
+          '<ul>' + why.reasons.map((x) => '<li>' + esc(x) + '</li>').join('') + '</ul></section>'
+        : '') +
+      (state.prefs ? '' : '<p class="small"><a href="#/style">Set your travel style</a> to see how well this place fits you.</p>');
     return {
       title: p.name,
       html:
@@ -823,12 +881,51 @@
             '<li><strong>' + state.bookings.length + '</strong><span>Trips</span></li>' +
             '<li><strong>' + state.reviews.length + '</strong><span>Reviews</span></li>' +
           '</ul>' +
-          (u ? '<ul class="menu"><li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li></ul>' : '') +
+          '<ul class="menu"><li><a href="#/style">Your travel style</a></li>' + (u ? '<li><a href="#/edit-profile">Edit profile</a></li><li><a href="#/settings">Settings</a></li>' : '') + '</ul>' +
           (u ? '' : '<p class="small">You are browsing as a guest.</p>') +
           (u && !isReal() ? '<p class="small">Demo account: sample data only.</p>' : '') +
           (u ? '<button type="button" class="btn btn--ghost" data-logout>Log out</button>' : '<a class="btn" href="#/login">Log in</a>') +
           (u && isReal() ? '<a class="center" href="#/delete-account">Delete my account</a>' : '') +
         '</main>' + navBar('profile')
+    };
+  };
+
+  // Travel style: three questions that feed the match model (js/match.js). Answers stay on this device.
+  screens.style = () => {
+    const s = state.prefs || { budget: 'Mid', withChildren: false, accepts4x4: true };
+    const radio = (v, label) => '<label><input type="radio" name="budget" value="' + v + '"' + (String(s.budget).toLowerCase() === v.toLowerCase() ? ' checked' : '') + '> ' + label + '</label>';
+    return {
+      title: 'Your travel style',
+      html:
+        header('Your travel style', '#/profile') +
+        '<main>' +
+          '<p class="lede">Three quick questions so we can show how well each place matches you.</p>' +
+          '<form id="styleform" class="form" novalidate>' +
+            '<fieldset class="choice"><legend>Your budget per night</legend>' +
+              radio('Low', 'Low (under about M700)') + radio('Mid', 'Mid (about M700 to M1,400)') + radio('High', 'High (above about M1,400)') +
+            '</fieldset>' +
+            '<label class="check"><input id="kids" type="checkbox"' + (s.withChildren ? ' checked' : '') + '><span>I travel with children</span></label>' +
+            '<label class="check"><input id="four" type="checkbox"' + (s.accepts4x4 ? ' checked' : '') + '><span>I am happy to drive a 4x4 on rough tracks</span></label>' +
+            '<p class="small">Saved on this device only. Nothing is sent to the server.</p>' +
+            '<button class="btn" type="submit">Save my style</button>' +
+            (state.prefs ? '<button type="button" class="btn btn--ghost" id="clearstyle">Clear my answers</button>' : '') +
+          '</form>' +
+        '</main>',
+      after: () => {
+        document.getElementById('styleform').addEventListener('submit', (e) => {
+          e.preventDefault();
+          const chosen = document.querySelector('input[name="budget"]:checked');
+          state.prefs = {
+            budget: chosen ? chosen.value : 'Mid',
+            withChildren: document.getElementById('kids').checked,
+            accepts4x4: document.getElementById('four').checked
+          };
+          writeStore();
+          location.hash = '#/home';
+        });
+        const clear = document.getElementById('clearstyle');
+        if (clear) clear.addEventListener('click', () => { state.prefs = null; writeStore(); location.hash = '#/profile'; });
+      }
     };
   };
 
@@ -854,7 +951,7 @@
         '<h2>What we collect</h2>' +
         '<p>Your name and email address, so you can have an account. The bookings and reviews you make.</p>' +
         '<h2>Where it is kept</h2>' +
-        '<p>Account details and bookings are kept in the project database. Places you save are kept only in this browser, on this device.</p>' +
+        '<p>Account details and bookings are kept in the project database. Places you save and your travel-style answers are kept only in this browser, on this device.</p>' +
         '<h2>The blockchain</h2>' +
         '<p>Only a fingerprint (a hash) of a booking or review is recorded on a public test blockchain. Names, emails, phone numbers and review text are never put on it.</p>' +
         '<h2>Payments</h2>' +
